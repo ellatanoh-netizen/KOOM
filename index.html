@@ -1,188 +1,435 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KOOM | Les Graines de l'Espoir – Droit & Justice</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #0f172a; }
-    .hidden-section { display: none !important; }
-    .btn-pro { transition: 0.3s; cursor: pointer; border-radius: 1rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
-    .card-pro { background: white; border: 1px solid #e2e8f0; border-radius: 2rem; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
-    .tab-active { background: #2E7D32 !important; color: white !important; }
-    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #e2e8f0; border-radius: 1.5rem; overflow: hidden; }
-    .calendar-day { background: #fff; min-height: 110px; padding: 10px; border: 0.5px solid #f1f5f9; }
-    .hour-checkbox { accent-color: #2E7D32; width: 14px; height: 14px; cursor: pointer; }
-  </style>
-</head>
-<body>
+import React, { useState, useEffect } from 'react';
+import { 
+  Users, Building2, ShieldCheck, Calendar, Clock, MapPin, 
+  CheckCircle2, AlertCircle, RefreshCcw, LogOut, ArrowRight, 
+  Send, Mail, Zap, ClipboardCheck, Search, ChevronLeft, 
+  ChevronRight, List, Phone, Info, UserCircle
+} from 'lucide-react';
 
-  <div id="loader" class="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-center">
-    <div class="w-14 h-14 border-4 border-slate-100 border-t-[#2E7D32] rounded-full animate-spin"></div>
-    <p class="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Initialisation KOOM 2026...</p>
-  </div>
+const App = () => {
+  // --- INTEGRATION API ---
+  const API_URL = "https://script.google.com/macros/s/AKfycbzZyTFTBEFKx4RX7qQObKGiZmmbgPB9NT_7ZQjJUh3AhXGoSGDU_2dtZZeacIUjT9zMFQ/exec";
 
-  <header id="app-header" class="hidden-section sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b px-6 py-4 flex justify-between items-center">
-    <div class="flex items-center gap-2 cursor-pointer" onclick="location.reload()">
-      <div class="w-10 h-10 bg-[#2E7D32] text-white rounded-xl flex items-center justify-center font-black shadow-lg">K</div>
-      <div class="ml-2">
-        <span class="font-black text-xl tracking-tighter uppercase block leading-none">KOOM</span>
-        <span class="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Les Graines de l'Espoir – Droit & Justice</span>
-      </div>
+  const [view, setView] = useState('hub');
+  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState('');
+  const [authRole, setAuthRole] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [coordTab, setCoordTab] = useState('journal');
+  const [selectedSlots, setSelectedSlots] = useState(new Set());
+  
+  const [missions, setMissions] = useState([]);
+  const [systemLogs, setSystemLogs] = useState([
+    { time: '08:00:01', event: 'Robot quotidien déclenché', status: 'SUCCESS' },
+    { time: '08:00:05', event: 'Flux API opérationnel', status: 'SENT' }
+  ]);
+
+  // Chargement initial des missions
+  useEffect(() => {
+    fetchMissions();
+    const timer = setTimeout(() => setLoading(false), 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const fetchMissions = async () => {
+    try {
+      const res = await fetch(`${API_URL}?action=listMissions`).then(r => r.json());
+      if (res.ok) setMissions(res.missions);
+    } catch (e) {
+      console.error("Erreur de connexion à l'API");
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}?action=validateToken&token=${token}`).then(r => r.json());
+      if (res.ok) {
+        setAuthRole(res.role);
+        setUserProfile(res.profile);
+        setView(res.role === 'BENE' ? 'volunteer' : 'coord');
+        setIsAuthModalOpen(false);
+      } else {
+        alert("Token invalide. Accès refusé.");
+      }
+    } catch (e) {
+      alert("Erreur de communication avec le serveur.");
+    }
+    setLoading(false);
+  };
+
+  const handleEngage = async (missionId) => {
+    const target = missions.find(m => m.id === missionId);
+    if (target.statut !== 'VALIDÉ') {
+      alert("Désolé, cette mission vient d'être pourvue.");
+      return;
+    }
+
+    if (!confirm(`Confirmer votre engagement pour la mission ${missionId} ?`)) return;
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'takeMission', code: missionId, token: token })
+      }).then(r => r.json());
+
+      if (res.ok) {
+        alert("Engagement réussi ! Un email pro vous a été envoyé.");
+        fetchMissions(); // Rafraîchir la liste
+      } else {
+        alert(res.error || "Erreur lors de l'engagement.");
+      }
+    } catch (e) {
+      alert("Serveur indisponible.");
+    }
+  };
+
+  const logout = () => {
+    setAuthRole(null);
+    setUserProfile(null);
+    setToken('');
+    setSelectedSlots(new Set());
+    setView('hub');
+  };
+
+  // Helper pour le calendrier hebdomadaire (Dates réelles)
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - d.getDay() + 1); 
+    return d;
+  });
+
+  const weekDates = Array.from({ length: 6 }).map((_, i) => {
+    const d = new Date(currentWeekStart);
+    d.setDate(currentWeekStart.getDate() + i);
+    return d;
+  });
+
+  const toggleSlot = (dayIdx, hourIdx) => {
+    const slotId = `${dayIdx}-${hourIdx}`;
+    const newSlots = new Set(selectedSlots);
+    if (newSlots.has(slotId)) newSlots.delete(slotId);
+    else newSlots.add(slotId);
+    setSelectedSlots(newSlots);
+  };
+
+  if (loading) return (
+    <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
+      <div className="w-16 h-16 border-4 border-slate-100 border-t-[#2E7D32] rounded-full animate-spin"></div>
+      <p className="mt-6 font-black text-[#2E7D32] tracking-widest text-sm uppercase">KOOM</p>
     </div>
-    <div id="u-info" class="hidden md:block text-[10px] font-black uppercase text-slate-400 tracking-widest">--</div>
-    <button onclick="window.logout()" class="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white transition-all">⏻</button>
-  </header>
+  );
 
-  <main class="max-w-7xl mx-auto p-6">
-    <div id="alert-zone" class="hidden-section fixed top-24 left-1/2 -translate-x-1/2 z-[100] w-full max-w-sm px-4"></div>
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-green-100">
+      {/* Navbar */}
+      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('hub')}>
+            <div className="w-10 h-10 bg-[#2E7D32] rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg">K</div>
+            <div className="flex flex-col leading-none">
+              <span className="font-extrabold text-2xl tracking-tighter text-slate-900 leading-none">KOOM</span>
+              <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-1">Les Graines de l'Espoir – Droit & Justice</span>
+            </div>
+          </div>
 
-    <section id="section-entry" class="hidden-section mt-12 text-center">
-      <h1 class="text-7xl font-black mb-4 tracking-tighter text-slate-900">KOOM <span class="text-[#2E7D32]">2026</span></h1>
-      <p class="text-slate-400 font-bold uppercase text-xs tracking-widest mb-12 italic">Association Les Graines de l'Espoir – Droit & Justice</p>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div onclick="window.showS('section-part')" class="card-pro p-12 cursor-pointer hover:shadow-2xl hover:-translate-y-2 transition-all"><h3 class="font-black text-2xl text-[#2E7D32]">Partenaires</h3><p class="text-xs text-slate-400 mt-2 uppercase tracking-widest">Nouveau dossier</p></div>
-        <div onclick="window.auth('BENE')" class="card-pro p-12 cursor-pointer text-[#2E7D32] border-[#2E7D32]/20 hover:shadow-2xl"><h3 class="font-black text-2xl">Bénévoles</h3><p class="text-xs text-slate-400 mt-2 uppercase tracking-widest">Dispos & Missions</p></div>
-        <div onclick="window.auth('COORD')" class="card-pro p-12 cursor-pointer bg-slate-900 text-white border-none hover:shadow-2xl"><h3 class="font-black text-2xl text-white uppercase">Coordination</h3><p class="text-xs text-slate-300 mt-2 uppercase tracking-widest">Pilotage Global</p></div>
-      </div>
-    </section>
-
-    <section id="section-part" class="hidden-section max-w-xl mx-auto bg-white p-12 rounded-[3.5rem] shadow-xl border">
-      <h2 class="text-3xl font-black mb-8 text-[#2E7D32] tracking-tight">Nouvelle Demande</h2>
-      <form id="form-part" class="space-y-4">
-        <input type="text" id="p-structure" placeholder="Votre Structure" class="w-full p-4 bg-slate-50 rounded-xl border-none focus:ring-2 focus:ring-[#2E7D32]" required>
-        <div class="flex gap-2">
-            <input type="text" id="p-dossier" placeholder="Réf Dossier" class="w-1/2 p-4 bg-slate-50 rounded-xl border-none" required>
-            <input type="email" id="p-email" placeholder="Email contact" class="w-1/2 p-4 bg-slate-50 rounded-xl border-none" required>
-        </div>
-        <select id="p-quartier" class="w-full p-4 bg-slate-50 rounded-xl border-none" required>
-          <option value="">-- Quel Secteur de Toulouse ? --</option>
-          <option value="Secteur 1 (Centre)">Secteur 1 : Centre (Capitole, Carmes, Marengo)</option>
-          <option value="Secteur 2 (Rive Gauche)">Secteur 2 : Rive Gauche (St-Cyprien, Bagatelle, Mirail)</option>
-          <option value="Secteur 3 (Nord)">Secteur 3 : Nord (Minimes, Borderouge, Lalande)</option>
-          <option value="Secteur 4 (Est)">Secteur 4 : Est (Bonnefoy, Roseraie, Jolimont)</option>
-          <option value="Secteur 5 (Sud-Est)">Secteur 5 : Sud-Est (Rangueil, St-Michel, Empalot)</option>
-          <option value="Secteur 6 (Ouest)">Secteur 6 : Ouest (Lardenne, Purpan, St-Simon)</option>
-          <option value="Périphérie">Périphérie / Agglomération</option>
-        </select>
-        <div class="flex gap-2"><input type="date" id="p-date" min="2026-01-01" class="w-1/2 p-4 bg-slate-50 rounded-xl border-none" required><input type="time" id="p-heure" class="w-1/2 p-4 bg-slate-50 rounded-xl border-none" required></div>
-        <input type="text" id="p-lieu" placeholder="Lieu exact du rendez-vous" class="w-full p-4 bg-slate-50 rounded-xl border-none" required>
-        <button type="submit" id="btn-part" class="btn-pro w-full py-5 bg-[#2E7D32] text-white uppercase tracking-widest mt-4">Envoyer le dossier</button>
-        <button type="button" onclick="window.showS('section-entry')" class="w-full text-xs font-bold text-slate-400 mt-2 italic text-center">Retour</button>
-      </form>
-    </section>
-
-    <section id="section-coord" class="hidden-section space-y-8">
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-white p-6 rounded-[2rem] border shadow-sm"><div class="text-[10px] font-black text-slate-400 uppercase">À Valider</div><div id="stat-attente" class="text-3xl font-black text-amber-500">0</div></div>
-        <div class="bg-white p-6 rounded-[2rem] border shadow-sm"><div class="text-[10px] font-black text-slate-400 uppercase">En Ligne</div><div id="stat-valide" class="text-3xl font-black text-[#2E7D32]">0</div></div>
-        <div class="bg-[#2E7D32] p-6 rounded-[2rem] text-white shadow-lg"><div class="text-[10px] font-black opacity-60 uppercase">Total 2026</div><div id="stat-total" class="text-3xl font-black">0</div></div>
-        <div class="bg-slate-900 p-6 rounded-[2rem] text-white shadow-lg"><div class="text-[10px] font-black opacity-60 uppercase">Pourvues</div><div id="stat-pourvu" class="text-3xl font-black">0</div></div>
-      </div>
-
-      <div class="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-[2.5rem] border shadow-sm">
-        <div class="flex gap-4 items-center">
-            <button onclick="window.changeM(-1)" class="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full font-bold">‹</button>
-            <div id="cal-label" class="font-black uppercase text-xs w-52 text-center text-slate-600 tracking-widest">--</div>
-            <button onclick="window.changeM(1)" class="w-10 h-10 flex items-center justify-center bg-slate-50 rounded-full font-bold">›</button>
-        </div>
-        <div class="flex bg-slate-100 p-1.5 rounded-xl">
-          <button id="c-tab-cal" onclick="window.cTab('CAL')" class="px-6 py-2 rounded-lg text-[9px] font-black tab-active transition-all">CALENDRIER</button>
-          <button id="c-tab-list" onclick="window.cTab('LIST')" class="px-6 py-2 rounded-lg text-[9px] font-black transition-all">GESTION</button>
-        </div>
-      </div>
-      <div id="view-c-cal" class="calendar-grid bg-white p-6 shadow-xl border"></div>
-      <div id="view-c-list" class="hidden-section grid grid-cols-1 md:grid-cols-3 gap-6"></div>
-    </section>
-
-    <section id="section-bene" class="hidden-section space-y-8">
-      <div class="bg-slate-900 text-white p-8 rounded-[2.5rem] flex justify-between items-center shadow-xl">
-        <div><h2 id="b-welcome" class="text-2xl font-black leading-tight">Bonjour</h2><div id="b-zone" class="text-[9px] font-black uppercase text-emerald-400 mt-1 tracking-widest">KOOM | LGE – Droit & Justice</div></div>
-        <div class="flex bg-white/10 p-1.5 rounded-xl">
-          <button id="b-tab-plan" onclick="window.bTab('PLAN')" class="px-5 py-2.5 rounded-xl text-[9px] font-black tab-active">MON PLANNING</button>
-          <button id="b-tab-mis" onclick="window.bTab('MIS')" class="px-5 py-2.5 rounded-xl text-[9px] font-black">MISSIONS</button>
-        </div>
-      </div>
-      
-      <div id="b-view-plan" class="card-pro p-10">
-        <div class="flex justify-between items-center mb-10">
-          <h3 class="font-black text-xl">Mes disponibilités 2026</h3>
-          <div class="flex gap-4 items-center bg-slate-100 p-2 rounded-2xl">
-            <button onclick="window.changeWeek(-1)" class="w-10 h-10 bg-white rounded-xl shadow-sm font-black">‹</button>
-            <div id="week-label" class="text-[10px] font-black uppercase w-48 text-center text-slate-400">--</div>
-            <button onclick="window.changeWeek(1)" class="w-10 h-10 bg-white rounded-xl shadow-sm font-black">›</button>
+          <div className="flex items-center gap-4">
+            {authRole && (
+              <div className="flex items-center gap-3 bg-green-50 px-4 py-2 rounded-full border border-green-100 shadow-sm transition-all hover:bg-green-100">
+                <span className="text-[10px] font-black text-[#2E7D32] uppercase tracking-widest">{userProfile?.name}</span>
+                <button onClick={logout} className="ml-2 text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1">
+                  <span className="text-[9px] font-black uppercase">Déconnexion</span>
+                  <LogOut size={14} />
+                </button>
+              </div>
+            )}
+            {!authRole && <button onClick={fetchMissions} className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"><RefreshCcw size={20} /></button>}
           </div>
         </div>
-        <div id="grid-dispo" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6"></div>
-        <textarea id="pl-comm" class="w-full mt-8 p-4 bg-slate-50 rounded-2xl text-xs border-none" placeholder="Commentaire éventuel..."></textarea>
-        <button onclick="window.savePlanning()" id="btn-save-plan" class="btn-pro w-full py-5 bg-[#2E7D32] text-white uppercase mt-8 tracking-widest shadow-lg">Enregistrer ma semaine</button>
-      </div>
+      </nav>
 
-      <div id="b-view-mis" class="hidden-section grid grid-cols-1 md:grid-cols-2 gap-10">
-        <div><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Mes Engagements</h3><div id="b-mine" class="space-y-4"></div></div>
-        <div><h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Missions Libres</h3><div id="b-avail" class="space-y-4"></div></div>
-      </div>
-    </section>
-  </main>
+      <main className="max-w-7xl mx-auto px-6 py-10">
+        {/* VIEW: HUB */}
+        {view === 'hub' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="mb-20 text-center">
+              <h1 className="text-8xl font-black tracking-tighter mb-4 text-slate-900 leading-none uppercase">KOOM</h1>
+              <div className="h-1.5 w-24 bg-[#2E7D32] mx-auto rounded-full mt-8 mb-8 opacity-30"></div>
+              <p className="text-slate-500 font-bold text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+                Gestion automatisée des missions & bénévoles.
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div onClick={() => setView('partner')} className="group p-10 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-xl hover:-translate-y-2 transition-all cursor-pointer">
+                <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-8"><Building2 size={28} /></div>
+                <h3 className="text-2xl font-black mb-3 text-slate-900 leading-none">Partenaires</h3>
+                <p className="text-slate-400 font-medium text-sm leading-relaxed mb-6">Déposer une demande de mission (Accès Public).</p>
+                <div className="flex items-center gap-2 text-[#2E7D32] font-black text-xs uppercase tracking-widest leading-none">Lancer <ArrowRight size={14} /></div>
+              </div>
 
-  <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwQA4gWE2FCJc1KHKKR45_4MXzPlxuQl2HQOpQCxEhqqxwNMw0e2Xm9Njwjq0nD25f2-Q/exec";
-    const DAYS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
-    const MONTHS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
-    const STATE = { token: sessionStorage.getItem('k_token'), user: null, missions: [], m: new Date().getMonth(), y: new Date().getFullYear(), curMon: getMonday(new Date()) };
+              <div onClick={() => setIsAuthModalOpen(true)} className="group p-10 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-xl hover:-translate-y-2 transition-all cursor-pointer">
+                <div className="w-14 h-14 bg-green-50 text-[#2E7D32] rounded-2xl flex items-center justify-center mb-8"><Users size={28} /></div>
+                <h3 className="text-2xl font-black mb-3 text-slate-900 leading-none">Bénévoles</h3>
+                <p className="text-slate-400 font-medium text-sm leading-relaxed mb-6">Accès privé : planning et engagements.</p>
+                <div className="flex items-center gap-2 text-[#2E7D32] font-black text-xs uppercase tracking-widest leading-none">S'identifier <ArrowRight size={14} /></div>
+              </div>
 
-    function getMonday(d) { d = new Date(d); let day = d.getDay(), diff = d.getDate() - day + (day === 0 ? -6 : 1); return new Date(d.setDate(diff)); }
-    const $ = (id) => document.getElementById(id);
-    const hide = (id) => $(id).classList.add('hidden-section');
-    const show = (id) => $(id).classList.remove('hidden-section');
+              <div onClick={() => setIsAuthModalOpen(true)} className="group p-10 bg-slate-900 rounded-[2.5rem] shadow-2xl hover:shadow-green-900/20 hover:-translate-y-2 transition-all cursor-pointer">
+                <div className="w-14 h-14 bg-white/10 text-white rounded-2xl flex items-center justify-center mb-8"><ShieldCheck size={28} /></div>
+                <h3 className="text-2xl font-black mb-3 text-white leading-none">Coordination</h3>
+                <p className="text-slate-400 font-medium text-sm leading-relaxed mb-6">Pilotage stratégique et audit technique.</p>
+                <div className="flex items-center gap-2 text-white font-black text-xs uppercase tracking-widest leading-none">Administrer <ArrowRight size={14} /></div>
+              </div>
+            </div>
+            
+            <div className="mt-20 text-center opacity-50">
+              <p className="text-[#2E7D32] font-black text-[10px] uppercase tracking-[0.4em]">Association Les Graines de l’Espoir – Droit & Justice</p>
+            </div>
+          </div>
+        )}
 
-    async function api(action, data = {}, method = 'POST') {
-      const url = new URL(SCRIPT_URL); if(method === 'GET') { url.searchParams.set('action', action); if(STATE.token) url.searchParams.set('token', STATE.token); const r = await fetch(url); return await r.json(); }
-      const response = await fetch(SCRIPT_URL, { method: 'POST', body: JSON.stringify({ action, token: STATE.token, token_nom: STATE.user?.nom, ...data }) }); 
-      return await response.json();
-    }
+        {/* VIEW: PARTNER FORM (10 CHAMPS) */}
+        {view === 'partner' && (
+          <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <button onClick={() => setView('hub')} className="text-[#2E7D32] font-black text-xs uppercase flex items-center gap-2 mb-8 transition-opacity hover:opacity-70"><ChevronLeft size={16} /> Retour</button>
+            <div className="bg-white p-10 md:p-14 rounded-[3rem] shadow-2xl border border-slate-100">
+              <h2 className="text-4xl font-black mb-10 tracking-tighter leading-none">Nouvelle Demande</h2>
+              <form className="grid grid-cols-1 md:grid-cols-2 gap-8" onSubmit={async (e) => { 
+                e.preventDefault(); 
+                const data = Object.fromEntries(new FormData(e.target));
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'createMission', ...data }) }).then(r => r.json());
+                if (res.ok) { alert(`Mission enregistrée : ${res.code}`); setView('hub'); }
+              }}>
+                <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Structure / Organisme *</label><input type="text" name="structure" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none transition-all" placeholder="Ex: Commissariat de Toulouse Central" /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Référence Dossier *</label><input type="text" name="refDossier" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Email Contact *</label><input type="email" name="emailContact" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Téléphone Direct *</label><div className="relative"><Phone className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={18} /><input type="tel" name="phone" required className="w-full pl-14 pr-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" placeholder="06 00 00 00 00" /></div></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Type de mission *</label><select name="typeMission" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none"><option value="">Sélectionner</option><option>Commissariat</option><option>Avocat</option><option>Tribunal</option><option>Social</option></select></div>
+                <div className="md:col-span-2">
+                  <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Secteur Toulouse (INSEE) *</label>
+                  <select name="secteur" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none">
+                    <option value="">Choisir un secteur</option>
+                    <option value="Centre">Centre (Secteur 1 – Capitole, Arnaud-Bernard, Carmes, Saint-Étienne...)</option>
+                    <option value="Rive Gauche">Rive Gauche (Secteur 2 – Saint-Cyprien, Patte d’Oie, Croix-de-Pierre...)</option>
+                    <option value="Nord">Nord (Secteur 3 – Minimes, Barrière de Paris, Lalande...)</option>
+                    <option value="Est">Est (Secteur 4 – Bonnefoy, Jolimont, Roseraie...)</option>
+                    <option value="Sud / Sud-Est">Sud / Sud-Est (Secteur 5 – Rangueil, Saouzelong, Jules-Julien...)</option>
+                    <option value="Ouest">Ouest (Secteur 6 – Lardenne, Purpan, Saint-Martin-du-Touch...)</option>
+                    <option value="Périphérie">Périphérie – hors Toulouse intra-muros</option>
+                  </select>
+                </div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Date RDV *</label><input type="date" name="date" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Heure RDV *</label><input type="time" name="heure" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
+                <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Lieu exact *</label><input type="text" name="lieu" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" placeholder="Adresse complète" /></div>
+                <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Commentaires</label><textarea name="commentaires" rows="3" className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" placeholder="Précisions utiles..."></textarea></div>
+                <button type="submit" className="md:col-span-2 bg-[#2E7D32] text-white py-6 rounded-3xl font-black text-xl hover:bg-slate-900 transition-all shadow-xl shadow-green-900/20 leading-none">Valider ma demande</button>
+              </form>
+            </div>
+          </div>
+        )}
 
-    function renderCalendar() {
-      const container = $('view-c-cal'); if(!container) return; 
-      $('cal-label').innerText = `${MONTHS_FR[STATE.m]} ${STATE.y}`;
-      const daysInMonth = new Date(STATE.y, STATE.m + 1, 0).getDate(); 
-      const firstDay = (new Date(STATE.y, STATE.m, 1).getDay() + 6) % 7;
-      let html = ''; 
-      ['L','M','M','J','V','S','D'].forEach(d => html += `<div class="bg-slate-50 p-2 text-center text-[10px] font-black text-slate-400 uppercase">${d}</div>`);
-      for (let i=0; i<firstDay; i++) html += `<div></div>`;
-      for (let d=1; d<=daysInMonth; d++) {
-        const dateISO = `${STATE.y}-${String(STATE.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const dayMissions = STATE.missions.filter(m => m.dISO === dateISO);
-        html += `<div class="calendar-day"><div class="text-[10px] font-black text-slate-300 mb-1">${d}</div>${dayMissions.map(m => `<div class="p-1 mb-1 text-[7px] font-black text-white rounded truncate ${m.statut==='ATTENTE'?'bg-amber-500':'bg-[#2E7D32]'}">${m.part}</div>`).join('')}</div>`;
-      }
-      container.innerHTML = html;
-    }
+        {/* VIEW: VOLUNTEER (CALENDRIER & ZONE DÉTAILLÉE) */}
+        {view === 'volunteer' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex flex-col md:flex-row gap-8 mb-12">
+                <div className="flex-1 p-10 bg-white border border-slate-200 rounded-[3rem] shadow-sm flex items-center gap-6">
+                   <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-[#2E7D32] shadow-inner"><UserCircle size={48} /></div>
+                   <div><h2 className="text-3xl font-black tracking-tighter leading-none">{userProfile?.name}</h2><div className="flex items-center gap-4 mt-2"><span className="bg-slate-900 text-white text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest leading-none">ID Validé</span><span className="text-xs font-bold text-slate-400">{userProfile?.email}</span></div></div>
+                </div>
+                <div className="w-full md:w-2/5 p-10 bg-[#2E7D32] rounded-[3rem] text-white shadow-xl shadow-green-900/10 relative overflow-hidden transition-transform hover:scale-[1.02]">
+                   <div className="absolute -right-4 -top-4 opacity-10"><MapPin size={120} /></div>
+                   <p className="text-[10px] font-black uppercase opacity-60 mb-4 tracking-widest relative z-10">Ma zone d'intervention (Secteurs INSEE)</p>
+                   <select className="w-full bg-white/10 border-white/20 rounded-xl px-4 py-3 font-bold text-[10px] outline-none focus:ring-2 focus:ring-white/30 relative z-10 transition-all">
+                      <option className="text-slate-900" value="Centre">Centre (Secteur 1 – Capitole, Arnaud-Bernard, Carmes, Saint-Étienne, Compans-Caffarelli, Chalets)</option>
+                      <option className="text-slate-900" value="Rive Gauche">Rive Gauche (Secteur 2 – Saint-Cyprien, Patte d’Oie, Croix-de-Pierre, Fontaine-Lestang, Cartoucherie)</option>
+                      <option className="text-slate-900" value="Nord">Nord (Secteur 3 – Minimes, Barrière de Paris, Lalande, Sept-Deniers, Ginestous)</option>
+                      <option className="text-slate-900" value="Est">Est (Secteur 4 – Bonnefoy, Jolimont, Roseraie, Soupetard, Marengo)</option>
+                      <option className="text-slate-900" value="Sud">Sud / Sud-Est (Secteur 5 – Rangueil, Saouzelong, Jules-Julien, Saint-Michel, Empalot, Île du Ramier)</option>
+                      <option className="text-slate-900" value="Ouest">Ouest (Secteur 6 – Lardenne, Purpan, Saint-Martin-du-Touch, Ancely, Casselardit)</option>
+                      <option className="text-slate-900" value="Peripherie">Périphérie – hors Toulouse intra-muros</option>
+                   </select>
+                   <button className="w-full mt-4 bg-white text-[#2E7D32] py-2.5 rounded-xl text-[10px] font-black uppercase relative z-10 transition-all hover:bg-slate-100 shadow-sm leading-none">Enregistrer ma zone</button>
+                </div>
+             </div>
 
-    window.refreshData = async () => {
-      const res = await api('GET_MISSIONS', {}, 'GET');
-      if(res && res.ok) { 
-        STATE.missions = res.missions.map(m => {
-            let iso = m.date; if(m.date.includes('/')) iso = m.date.split('/').reverse().join('-');
-            return { ...m, dISO: iso };
-        });
-        if(STATE.user?.role==='COORD') { updateStats(); renderCalendar(); renderCoordList(); }
-        else { renderBeneList(); }
-      }
-      hide('loader');
-    };
+             <div className="flex justify-between items-end mb-8 px-2">
+               <div><h3 className="text-2xl font-black tracking-tighter leading-none">Mon Planning Hebdomadaire</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 italic">Sélectionnez vos créneaux (allumer les cases)</p></div>
+               <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm">
+                  <button onClick={() => { const d = new Date(currentWeekStart); d.setDate(d.getDate() - 7); setCurrentWeekStart(d); }} className="text-slate-400 hover:text-slate-900 transition-colors"><ChevronLeft size={20}/></button>
+                  <span className="font-black text-[10px] uppercase tracking-widest px-2">Semaine du {weekDates[0].toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</span>
+                  <button onClick={() => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + 7); setCurrentWeekStart(d); }} className="text-slate-400 hover:text-slate-900 transition-colors"><ChevronRight size={20}/></button>
+               </div>
+             </div>
 
-    function updateStats() { if(STATE.user.role !== 'COORD') return; $('stat-attente').innerText = STATE.missions.filter(m => m.statut === 'ATTENTE').length; $('stat-valide').innerText = STATE.missions.filter(m => m.statut === 'VALIDÉ').length; $('stat-pourvu').innerText = STATE.missions.filter(m => m.statut === 'POURVU').length; $('stat-total').innerText = STATE.missions.length; }
+             <div className="bg-white border border-slate-200 rounded-[3rem] overflow-hidden shadow-sm mb-12">
+                <div className="overflow-x-auto">
+                   <div className="min-w-[1000px] grid grid-cols-7 divide-x divide-slate-100">
+                      <div className="bg-slate-50/50">
+                         <div className="h-16 border-b border-slate-100 flex items-center justify-center font-black text-[10px] text-slate-300 uppercase tracking-widest tracking-widest">Heures</div>
+                         {['08h','09h','10h','11h','12h','13h','14h','15h','16h','17h','18h','19h','20h'].map(h => (
+                            <div key={h} className="h-14 flex items-center justify-center text-[11px] font-black text-slate-300 border-b border-slate-50">{h}</div>
+                         ))}
+                      </div>
+                      {weekDates.map((date, dayIdx) => (
+                        <div key={dayIdx} className="flex-1">
+                           <div className="h-16 flex flex-col items-center justify-center border-b border-slate-100 bg-white">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{date.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
+                              <span className="text-xl font-black text-slate-900 mt-1 leading-none">{date.getDate()}</span>
+                           </div>
+                           {Array.from({length: 13}).map((_, hourIdx) => {
+                             const slotId = `${dayIdx}-${hourIdx}`;
+                             const isSelected = selectedSlots.has(slotId);
+                             return (
+                               <div key={hourIdx} onClick={() => toggleSlot(dayIdx, hourIdx)} className={`h-14 border-b border-slate-50 cursor-pointer transition-all flex items-center justify-center group ${isSelected ? 'bg-green-50' : 'hover:bg-slate-50/50'}`}>
+                                  {isSelected && <div className="w-10 h-10 bg-[#2E7D32] rounded-xl shadow-lg border border-[#2E7D32] animate-in zoom-in-75"></div>}
+                               </div>
+                             );
+                           })}
+                        </div>
+                      ))}
+                   </div>
+                </div>
+                <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-between items-center px-10">
+                   <button onClick={() => setSelectedSlots(new Set())} className="text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors underline underline-offset-4">Tout décocher</button>
+                   <button className="bg-[#2E7D32] text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl shadow-green-900/10 hover:bg-slate-900 transition-all leading-none">Enregistrer mon planning</button>
+                </div>
+             </div>
 
-    function renderCoordList() {
-      $('view-c-list').innerHTML = STATE.missions.map(m => `<div class="bg-white p-6 rounded-[2rem] border shadow-sm transition-all hover:shadow-lg"><div class="flex justify-between items-center mb-3"><span class="text-[8px] font-black bg-slate-100 px-2 py-0.5 rounded uppercase text-slate-500">${m.statut}</span></div><h4 class="font-black text-lg truncate">${m.part}</h4><p class="text-[10px] font-bold text-slate-400 mt-1">${m.date} • ${m.heure}</p><div class="mt-4 flex gap-2">${m.statut === 'ATTENTE' ? `<button onclick="window.upM('${m.id}','VALIDÉ')" class="flex-1 py-3 bg-[#2E7D32] text-white rounded-xl text-[10px] font-black uppercase transition-all">VALIDER</button>`:''}<button onclick="window.archiveM('${m.id}')" class="p-3 bg-rose-50 text-rose-500 rounded-xl transition-all">🗑</button></div></div>`).join('');
-    }
+             <h3 className="text-2xl font-black tracking-tighter mb-8 px-2 leading-none">Missions Disponibles (VALIDÉES)</h3>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {missions.filter(m => m.statut === 'VALIDÉ').map(m => (
+                  <div key={m.id} className="p-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm relative group hover:border-[#2E7D32] transition-all">
+                    <span className="text-[10px] font-black text-slate-200 absolute top-8 right-8 leading-none">{m.id}</span>
+                    <div className="flex items-center gap-2 mb-4"><span className="text-[9px] font-black text-[#2E7D32] bg-green-50 px-3 py-1 rounded-lg uppercase tracking-widest leading-none">{m.type}</span></div>
+                    <h4 className="text-xl font-black mb-2 tracking-tight leading-none">{m.secteur}</h4>
+                    <p className="text-slate-400 text-xs font-bold mb-8 flex items-center gap-2 leading-relaxed"><MapPin size={14} /> {m.lieu}</p>
+                    <div className="flex items-center justify-between pt-6 border-t border-slate-50">
+                       <div className="flex flex-col"><span className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1 leading-none">RDV prévu</span><span className="text-sm font-black text-slate-900 leading-none">{m.date} à {m.heure}</span></div>
+                       <button onClick={() => handleEngage(m.id)} className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase hover:bg-[#2E7D32] transition-all shadow-md leading-none">S'engager</button>
+                    </div>
+                  </div>
+                ))}
+             </div>
+          </div>
+        )}
 
-    window.renderBenePlanning = () => {
-      const start = new Date(STATE.curMon); $('week-label').innerText = `Semaine du ${start.getDate()}/${start.getMonth()+1}`;
-      let html = ''; 
-      for(let i=0; i<6; i++) { 
-        let cur = new Date(start); cur.setDate(start.getDate()+i); 
-        let hoursHtml = '<div class="grid grid-cols-2 gap-1 mt-3">';
-        for(let h=8; h<=20; h++) {
+        {/* VIEW: COORDINATION (ONGLETS) */}
+        {view === 'coord' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="flex flex-wrap items-center gap-3 mb-12 bg-slate-200/50 p-2 rounded-[2rem] w-fit shadow-inner">
+              <button onClick={() => setCoordTab('journal')} className={`px-8 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'journal' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Journal</button>
+              <button onClick={() => setCoordTab('calendar')} className={`px-8 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'calendar' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Calendrier</button>
+              <button onClick={() => setCoordTab('audit')} className={`px-8 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'audit' ? 'bg-[#2E7D32] shadow-xl text-white' : 'text-slate-500 hover:text-slate-700'}`}>Audit & Recette</button>
+            </div>
+
+            {coordTab === 'journal' && (
+              <div className="animate-in fade-in duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+                  <div className="p-8 bg-white border border-slate-200 rounded-[2rem] text-center shadow-sm"><p className="text-[10px] font-black uppercase text-slate-300 mb-2 leading-none">Attente</p><p className="text-5xl font-black leading-none">{missions.filter(m => m.statut === 'ATTENTE').length}</p></div>
+                  <div className="p-8 bg-white border border-slate-200 rounded-[2rem] text-center border-l-4 border-l-[#2E7D32] shadow-sm"><p className="text-[10px] font-black uppercase text-[#2E7D32] mb-2 tracking-widest leading-none">Validées</p><p className="text-5xl font-black text-[#2E7D32] leading-none">{missions.filter(m => m.statut === 'VALIDÉ').length}</p></div>
+                  <div className="p-8 bg-white border border-slate-200 rounded-[2rem] text-center shadow-sm"><p className="text-[10px] font-black uppercase text-slate-300 mb-2 leading-none">Pourvues</p><p className="text-5xl font-black text-blue-600 leading-none">{missions.filter(m => m.statut === 'POURVUE').length}</p></div>
+                  <div className="p-8 bg-red-50 border border-red-100 rounded-[2rem] text-center shadow-sm transition-all hover:bg-red-100"><p className="text-[10px] font-black uppercase text-red-600 mb-2 font-bold tracking-widest leading-none">Urgent J-1</p><p className="text-5xl font-black text-red-600 leading-none">1</p></div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-[3rem] overflow-hidden shadow-sm">
+                   <table className="w-full text-left">
+                      <thead><tr className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 tracking-widest"><th className="px-10 py-6">Code</th><th className="px-10 py-6">Mission / Lieu</th><th className="px-10 py-6">Bénévole</th><th className="px-10 py-6">Statut</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
+                      <tbody className="divide-y divide-slate-50 font-bold text-slate-700">
+                         {missions.map(m => (
+                           <tr key={m.id} className="hover:bg-slate-50 transition-all"><td className="px-10 py-7 text-sm font-black text-[#2E7D32]">{m.id}</td><td className="px-10 py-7"><span className="text-slate-900 block leading-tight font-black">{m.structure}</span><span className="text-slate-400 text-[10px] uppercase tracking-widest mt-1 block leading-none">{m.type} • {m.date}</span></td><td className="px-10 py-7 text-sm text-slate-500 font-black">{m.beneNom || <span className="text-slate-200 italic">— Libre —</span>}</td><td className="px-10 py-7"><span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none ${m.statut === 'VALIDÉ' ? 'bg-green-100 text-[#2E7D32]' : m.statut === 'POURVUE' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>{m.statut}</span></td><td className="px-10 py-7 text-right"><button className="text-[11px] font-black uppercase text-slate-900 border-b-2 border-slate-900 transition-all hover:text-[#2E7D32] hover:border-[#2E7D32] leading-none">Gérer</button></td></tr>
+                         ))}
+                      </tbody>
+                   </table>
+                </div>
+              </div>
+            )}
+
+            {coordTab === 'calendar' && (
+              <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-12">
+                   <div><h3 className="text-3xl font-black tracking-tighter leading-none">Janvier 2026</h3><p className="text-slate-400 font-bold mt-1 uppercase text-xs tracking-widest leading-none">Aperçu mensuel des missions</p></div>
+                   <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl"><button className="p-3 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronLeft size={18}/></button><button className="p-3 hover:bg-white rounded-xl shadow-sm transition-all"><ChevronRight size={18}/></button></div>
+                </div>
+                <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-[2rem] overflow-hidden shadow-inner">
+                   {['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(d => (<div key={d} className="bg-slate-50 p-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
+                   {Array.from({length: 31}).map((_, i) => (
+                     <div key={i} className="bg-white min-h-[140px] p-5 group hover:bg-slate-50 transition-colors relative">
+                        <span className="text-sm font-black text-slate-300 group-hover:text-slate-900 transition-colors leading-none">{i+1}</span>
+                        {i === 19 && <div className="mt-3 bg-[#2E7D32] text-white p-3 rounded-2xl shadow-lg border border-[#2E7D32] animate-in slide-in-from-top-1 duration-300"><p className="text-[11px] font-black truncate leading-tight">M-1024 • Commissariat</p><p className="text-[9px] font-bold mt-2 opacity-80 uppercase tracking-tighter leading-none">09:00 • Centre</p></div>}
+                        {i === 17 && <div className="mt-3 bg-blue-600 text-white p-3 rounded-2xl shadow-lg border border-blue-700"><p className="text-[11px] font-black truncate leading-none">M-1025 • Marie L.</p><p className="text-[9px] font-bold mt-1 opacity-80 uppercase tracking-tighter leading-none">14:30 • Rive G.</p></div>}
+                     </div>
+                   ))}
+                </div>
+              </div>
+            )}
+
+            {coordTab === 'audit' && (
+              <div className="animate-in fade-in duration-300 space-y-10">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                   <div className="lg:col-span-1 bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-8 opacity-10"><Zap size={120}/></div>
+                      <div className="flex items-center gap-3 mb-10 relative z-10"><Zap className="text-yellow-400" size={24} /><h3 className="text-2xl font-black tracking-tighter uppercase leading-none">Automations</h3></div>
+                      <div className="space-y-8 relative z-10">
+                         <div className="p-6 bg-white/10 rounded-[1.5rem] border border-white/10 backdrop-blur-sm shadow-inner"><p className="text-[10px] font-black uppercase text-slate-500 mb-2 tracking-widest leading-none">Robot Quotidien</p><p className="text-xs font-bold leading-none">Prochaine analyse : Demain 08:00</p></div>
+                         <div className="space-y-5">
+                            <p className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] leading-none">Logs Temps Réel (Test 1.5)</p>
+                            <div className="max-h-[350px] overflow-y-auto space-y-4 no-scrollbar">
+                              {systemLogs.map((log, i) => (
+                                 <div key={i} className="flex gap-4 items-start pb-4 border-b border-white/5 transition-all hover:translate-x-1">
+                                    <span className="text-[10px] font-black text-slate-500 whitespace-nowrap mt-1 leading-none">{log.time}</span>
+                                    <div className="flex flex-col"><span className="text-xs font-bold leading-tight mb-1">{log.event}</span><span className={`text-[9px] font-black uppercase tracking-widest leading-none ${log.status === 'SENT' || log.status === 'SUCCESS' ? 'text-green-400' : 'text-yellow-400'}`}>{log.status}</span></div>
+                                 </div>
+                              ))}
+                            </div>
+                         </div>
+                         <button className="w-full flex items-center justify-center gap-3 bg-white/10 hover:bg-white/20 transition-all py-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.2em] border border-white/5 shadow-xl leading-none"><RefreshCcw size={16} /> Relancer les Triggers</button>
+                      </div>
+                   </div>
+
+                   <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
+                      <div className="flex items-center gap-4 mb-12"><ClipboardCheck className="text-[#2E7D32]" size={32} /><div><h3 className="text-3xl font-black tracking-tighter leading-none">Recette Opérationnelle</h3><p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1 leading-none">Conformité cahier des charges</p></div></div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                         <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all"><div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Mail size={40}/></div><p className="text-[10px] font-black text-[#2E7D32] uppercase mb-6 tracking-[0.2em] leading-none">Mails & Coordo (1.5)</p><div className="space-y-4"><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> Test M1: Envoi aux 2 adresses</div><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> Test M2: Accusé Partenaire</div></div></div>
+                         <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all"><div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><ShieldCheck size={40}/></div><p className="text-[10px] font-black text-[#2E7D32] uppercase mb-6 tracking-[0.2em] leading-none">Sécurité (4.1)</p><div className="space-y-4"><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> B1: Validation token privé</div><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> B3: Masquage token URL</div></div></div>
+                         <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 md:col-span-2 relative overflow-hidden group hover:shadow-md transition-all"><div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Clock size={40}/></div><p className="text-[10px] font-black text-[#2E7D32] uppercase mb-6 tracking-[0.2em] leading-none">Automatisations (7.1)</p><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> R1: Robot 08h00 J-1 critique</div><div className="flex items-center gap-3 text-xs font-bold"><CheckCircle2 size={18} className="text-green-500" /> R2: Relance CR J+1 automatique</div></div></div>
+                      </div>
+                      <div className="mt-12 p-8 bg-green-50 rounded-[2rem] border border-green-100 flex items-center gap-6 shadow-sm transition-all hover:shadow-md"><div className="w-14 h-14 bg-[#2E7D32] text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg shadow-green-900/20">OK</div><div><p className="text-lg font-black text-[#2E7D32] leading-tight leading-none">Système conforme & prêt</p><p className="text-xs font-bold text-green-700/60 uppercase tracking-[0.1em] mt-1 leading-none">Audit effectué • 2026 Opérationnel</p></div></div>
+                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <footer className="max-w-7xl mx-auto px-6 py-16 border-t border-slate-200 mt-20 text-center opacity-70">
+         <span className="font-black text-2xl tracking-tighter text-slate-900 uppercase leading-none block mb-3">KOOM</span>
+         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Association Les Graines de l'Espoir – Droit & Justice</span>
+         <div className="mt-8 flex justify-center gap-8 text-[9px] font-black uppercase text-slate-300 tracking-[0.2em] leading-none">
+            <span>Auditable</span><span>Sécurité Token</span><span className="text-[#2E7D32] bg-green-50 px-3 py-1 rounded-full border border-green-100">V.2.0-Stable</span>
+         </div>
+      </footer>
+
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-xl transition-all animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-md p-12 rounded-[3rem] shadow-2xl scale-in animate-in zoom-in-95 duration-300">
+                <div className="w-20 h-20 bg-green-50 text-[#2E7D32] rounded-[2rem] flex items-center justify-center mb-10 mx-auto shadow-sm"><ShieldCheck size={36} /></div>
+                <h3 className="text-4xl font-black text-center mb-3 tracking-tighter leading-none">Identification</h3>
+                <p className="text-slate-400 text-center text-sm font-bold mb-10 leading-tight">Veuillez saisir votre token personnel (BENE ou COORD).</p>
+                <div className="space-y-6">
+                  <input type="password" value={token} onChange={(e) => setToken(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleLogin()} className="w-full px-8 py-6 rounded-2xl bg-slate-50 text-center tracking-[0.6em] text-3xl font-black mb-6 outline-none focus:ring-4 focus:ring-[#2E7D32]/10 focus:border-[#2E7D32] transition-all border-2 border-transparent" placeholder="••••" />
+                  <div className="flex gap-4">
+                      <button onClick={handleLogin} className="flex-[2] bg-[#2E7D32] text-white py-6 rounded-2xl font-black text-xl shadow-2xl shadow-green-900/20 hover:bg-slate-900 transition-all leading-none">Valider</button>
+                      <button onClick={() => setIsAuthModalOpen(false)} className="flex-1 bg-slate-100 text-slate-400 py-6 rounded-2xl font-bold uppercase text-xs tracking-widest leading-none">Annuler</button>
+                  </div>
+                </div>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
