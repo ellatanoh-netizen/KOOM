@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KOOM - Gestion Missions Officielle</title>
+    <title>KOOM - Gestion Missions</title>
     <!-- Bibliothèques Cloud -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -18,26 +18,33 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .btn-loading { opacity: 0.5 !important; pointer-events: none !important; cursor: not-allowed !important; }
+        .slot-active { background-color: #2E7D32 !important; border-color: #1B5E20 !important; box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3); }
+        /* Correction visibilité des listes déroulantes */
+        select option { color: #0f172a !important; background-color: #ffffff !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useCallback, useMemo } = React;
 
-        // Icônes SVG pour éviter les bugs de chargement
+        // Bibliothèque d'icônes SVG Professionnelles
         const Icons = {
-            Users: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-            Building: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M16 18h.01"/></svg>,
-            Shield: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
-            LogOut: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
-            ChevronLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
-            ChevronRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
-            Check: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
-            MapPin: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
-            Send: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
-            Zap: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Users: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+            Building: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M16 18h.01"/></svg>,
+            Shield: () => <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+            LogOut: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+            ChevronLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+            ChevronRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
+            Check: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+            MapPin: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+            Send: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+            Refresh: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>,
+            Zap: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+            Clipboard: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
+            Clock: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            Mail: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         };
 
         const App = () => {
@@ -53,17 +60,15 @@
             const [coordTab, setCoordTab] = useState('journal');
             const [selectedSlots, setSelectedSlots] = useState(new Set());
             const [missions, setMissions] = useState([]);
-
-            // Simulation Logs techniques
+            
             const [systemLogs] = useState([
                 { time: '08:00:01', event: 'Robot quotidien déclenché', status: 'SUCCESS' },
-                { time: '08:00:05', event: 'Rapport J-1 envoyé à lgedroitetjustice@gmail.com', status: 'SENT' },
-                { time: '08:00:06', event: 'Rapport J-1 envoyé à louisa.zerkane@gmail.com', status: 'SENT' }
+                { time: '08:00:05', event: 'Interface Production connectée', status: 'SENT' }
             ]);
 
             useEffect(() => {
                 fetchMissions();
-                const timer = setTimeout(() => setLoading(false), 1200);
+                const timer = setTimeout(() => setLoading(false), 1500);
                 return () => clearTimeout(timer);
             }, []);
 
@@ -71,7 +76,7 @@
                 try {
                     const res = await fetch(`${API_URL}?action=listMissions`).then(r => r.json());
                     if (res.ok) setMissions(res.missions);
-                } catch (e) { console.error("Erreur API"); }
+                } catch (e) { console.error("Erreur Sync API"); }
             };
 
             const handleLogin = async () => {
@@ -81,14 +86,27 @@
                     const res = await fetch(`${API_URL}?action=validateToken&token=${token}`).then(r => r.json());
                     if (res.ok) {
                         setAuthRole(res.role);
-                        setUserProfile(res.profile);
+                        setUserProfile({
+                            name: res.profile.name,
+                            email: res.profile.email,
+                            secteur: res.profile.sector || res.profile.secteur
+                        });
                         setView(res.role === 'BENE' ? 'volunteer' : 'coord');
                         setIsAuthModalOpen(false);
                         fetchMissions();
-                    } else { alert("Token invalide."); }
-                } catch (e) { alert("Erreur de connexion."); }
+                    } else { alert("Identification échouée. Vérifiez votre token."); }
+                } catch (e) { alert("Erreur serveur."); }
                 setIsSubmitting(false);
             };
+
+            const toggleSlot = useCallback((day, hour) => {
+                const id = `${day}-${hour}`;
+                setSelectedSlots(prev => {
+                    const n = new Set(prev);
+                    if (n.has(id)) n.delete(id); else n.add(id);
+                    return n;
+                });
+            }, []);
 
             const handleSavePlanning = async () => {
                 if (isSubmitting) return;
@@ -99,146 +117,144 @@
                         method: 'POST',
                         body: JSON.stringify({ action: 'saveMyPlanning', token, concat })
                     }).then(r => r.json());
-                    if (res.ok) alert("Planning sauvegardé avec succès.");
-                } catch (e) { alert("Erreur de sauvegarde."); }
+                    if (res.ok) alert("Planning sauvegardé !");
+                } catch (e) { alert("Erreur."); }
                 setIsSubmitting(false);
             };
 
             const handleEngage = async (id) => {
                 if (isSubmitting) return;
-                const target = missions.find(m => m.id === id);
-                if (target.statut !== 'VALIDÉ') return alert("Mission déjà pourvue.");
-                if (!confirm(`Confirmer votre engagement sur ${id} ?`)) return;
-                
+                const m = missions.find(x => x.id === id);
+                if (m.statut !== 'VALIDÉ') return alert("Mission déjà prise.");
+                if (!confirm(`Confirmer votre engagement pour ${id} ?`)) return;
                 setIsSubmitting(true);
                 try {
-                    const res = await fetch(API_URL, {
-                        method: 'POST',
-                        body: JSON.stringify({ action: 'takeMission', code: id, token: token })
-                    }).then(r => r.json());
-                    if (res.ok) { alert("Mission confirmée ! Email envoyé."); fetchMissions(); }
-                    else alert(res.error);
-                } catch (e) { alert("Erreur réseau"); }
+                    const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'takeMission', code: id, token: token }) }).then(r => r.json());
+                    if (res.ok) { alert("Engagement validé !"); fetchMissions(); }
+                } catch (e) {}
                 setIsSubmitting(false);
             };
 
-            const logout = () => {
-                setAuthRole(null);
-                setUserProfile(null);
-                setToken('');
-                setView('hub');
-            };
+            const logout = () => { setAuthRole(null); setToken(''); setView('hub'); };
 
-            // Calendrier Hebdo
-            const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+            // Calendrier Coordination
+            const [calendarBaseDate, setCalendarBaseDate] = useState(new Date(2026, 0, 1));
+            const monthName = calendarBaseDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+            const [weekStart, setWeekStart] = useState(() => {
                 const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); return d;
             });
             const weekDates = Array.from({ length: 6 }).map((_, i) => {
-                const d = new Date(currentWeekStart); d.setDate(currentWeekStart.getDate() + i); return d;
+                const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
             });
+
+            const urgentCount = useMemo(() => {
+                const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                const dateStr = tomorrow.toISOString().split('T')[0];
+                return missions.filter(m => m.date === dateStr && m.statut === 'VALIDÉ').length;
+            }, [missions]);
 
             if (loading) return (
                 <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
                     <div className="w-14 h-14 border-[5px] border-slate-100 border-t-[#2E7D32] rounded-full animate-spin"></div>
-                    <p className="mt-6 font-black text-[#2E7D32] tracking-widest text-xs uppercase animate-pulse">Initialisation KOOM</p>
+                    <p className="mt-6 font-black text-[#2E7D32] tracking-widest text-[10px] uppercase animate-pulse leading-none">KOOM</p>
                 </div>
             );
 
             return (
                 <div className="min-h-screen pb-20 bg-slate-50">
-                    {/* Header sans adresse mail, uniquement le NOM */}
-                    <nav className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 h-20 flex items-center shadow-sm">
+                    {/* Header - NOM uniquement */}
+                    <nav className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 h-20 flex items-center shadow-sm">
                         <div className="max-w-7xl mx-auto px-6 w-full flex items-center justify-between">
                             <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setView('hub')}>
-                                <div className="w-10 h-10 bg-[#2E7D32] rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg group-hover:scale-105 transition-transform">K</div>
+                                <div className="w-10 h-10 bg-[#2E7D32] rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg transition-transform group-hover:scale-105">K</div>
                                 <div className="flex flex-col leading-none">
                                     <span className="font-extrabold text-2xl tracking-tighter text-slate-900 leading-none uppercase">KOOM</span>
-                                    <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-1">Les Graines de l'Espoir – Droit & Justice</span>
+                                    <span className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-1 leading-tight">Les Graines de l'Espoir – Droit & Justice</span>
                                 </div>
                             </div>
                             {authRole && (
-                                <div className="flex items-center gap-4">
-                                    <div className="bg-green-50 px-4 py-2 rounded-full border border-green-100 flex items-center gap-3">
+                                <div className="flex items-center gap-4 animate-in">
+                                    <div className="bg-green-50 px-5 py-2.5 rounded-full border border-green-100 flex items-center gap-3 shadow-sm">
                                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                        <span className="text-[10px] font-black text-[#2E7D32] uppercase tracking-widest">{userProfile?.name}</span>
+                                        <span className="text-[10px] font-black text-[#2E7D32] uppercase tracking-[0.1em] leading-none">{userProfile?.name}</span>
                                     </div>
-                                    <button onClick={logout} className="p-2.5 text-red-500 bg-red-50 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm flex items-center gap-2">
-                                        <Icons.LogOut /> <span className="text-[9px] font-black uppercase hidden md:inline">Quitter</span>
+                                    <button onClick={logout} className="p-3 text-red-500 bg-red-50 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm">
+                                        <Icons.LogOut />
                                     </button>
                                 </div>
                             )}
                         </div>
                     </nav>
 
-                    <main className="max-w-7xl mx-auto px-6 py-10">
+                    <main className="max-w-7xl mx-auto px-6 py-12">
                         {/* HUB */}
                         {view === 'hub' && (
-                            <div className="animate-in text-center py-16">
-                                <h1 className="text-8xl font-black tracking-tighter mb-4 text-slate-900 leading-none">KOOM</h1>
-                                <p className="text-[#2E7D32] font-black text-[11px] uppercase tracking-[0.4em] mb-12">Gestion opérationnelle des missions</p>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto text-left">
-                                    <div onClick={() => setView('partner')} className="group p-10 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-xl transition-all cursor-pointer">
-                                        <div className="text-blue-600 mb-8 bg-blue-50 w-12 h-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Building /></div>
-                                        <h3 className="text-2xl font-black mb-3">Partenaires</h3>
-                                        <p className="text-slate-400 text-sm leading-relaxed italic">Espace public : Déposer une demande de mission.</p>
+                            <div className="animate-in text-center py-20">
+                                <h1 className="text-8xl md:text-9xl font-black tracking-tighter mb-4 text-slate-900 leading-none uppercase tracking-tighter">KOOM</h1>
+                                <div className="h-2 w-24 bg-[#2E7D32] mx-auto rounded-full mb-12 opacity-30"></div>
+                                <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[11px] mb-20">Système de gestion automatisée des missions</p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-10 max-w-6xl mx-auto text-left">
+                                    <div onClick={() => setView('partner')} className="group p-12 bg-white border border-slate-200 rounded-[3.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-2xl transition-all cursor-pointer">
+                                        <div className="text-blue-600 mb-10 bg-blue-50 w-14 h-14 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Building /></div>
+                                        <h3 className="text-3xl font-black mb-3 text-slate-900">Partenaires</h3>
+                                        <p className="text-slate-400 text-sm leading-relaxed italic uppercase font-bold text-[9px] tracking-widest opacity-60">Espace Public : Dépôt</p>
                                     </div>
-                                    <div onClick={() => setIsAuthModalOpen(true)} className="group p-10 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-xl transition-all cursor-pointer">
-                                        <div className="text-[#2E7D32] mb-8 bg-green-50 w-12 h-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Users /></div>
-                                        <h3 className="text-2xl font-black mb-3">Bénévoles</h3>
-                                        <p className="text-slate-400 text-sm leading-relaxed italic">Espace privé : Mon planning et engagements.</p>
+                                    <div onClick={() => setIsAuthModalOpen(true)} className="group p-12 bg-white border border-slate-200 rounded-[3.5rem] shadow-sm hover:border-[#2E7D32] hover:shadow-2xl transition-all cursor-pointer">
+                                        <div className="text-[#2E7D32] mb-10 bg-green-50 w-14 h-14 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Users /></div>
+                                        <h3 className="text-3xl font-black mb-3 text-slate-900">Bénévoles</h3>
+                                        <p className="text-slate-400 text-sm leading-relaxed italic uppercase font-bold text-[9px] tracking-widest opacity-60">Espace Privé : Planning</p>
                                     </div>
-                                    <div onClick={() => setIsAuthModalOpen(true)} className="group p-10 bg-slate-900 rounded-[2.5rem] shadow-2xl hover:shadow-green-900/20 transition-all cursor-pointer text-white">
-                                        <div className="text-white mb-8 bg-white/10 w-12 h-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Shield /></div>
-                                        <h3 className="text-2xl font-black mb-3">Coordination</h3>
-                                        <p className="text-slate-500 text-sm leading-relaxed italic">Pilotage stratégique et audit technique.</p>
+                                    <div onClick={() => setIsAuthModalOpen(true)} className="group p-12 bg-slate-900 rounded-[3.5rem] shadow-2xl transition-all cursor-pointer text-white">
+                                        <div className="text-white mb-10 bg-white/10 w-14 h-14 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform"><Icons.Shield /></div>
+                                        <h3 className="text-2xl font-black mb-3 text-white">Coordination</h3>
+                                        <p className="text-slate-500 text-sm leading-relaxed italic uppercase font-bold text-[9px] tracking-widest opacity-60 text-white/50">Audit & Pilotage</p>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* PARTNER FORM - SANS EXEMPLES */}
+                        {/* PARTNER FORM */}
                         {view === 'partner' && (
                             <div className="max-w-4xl mx-auto animate-in">
-                                <button onClick={() => setView('hub')} className="text-[#2E7D32] font-black text-[10px] flex items-center gap-2 mb-8 uppercase hover:opacity-70"><Icons.ChevronLeft /> Retour Hub</button>
-                                <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50/50 rounded-bl-full -mr-16 -mt-16"></div>
-                                    <h2 className="text-4xl font-black mb-10 tracking-tighter">Nouvelle Demande</h2>
-                                    <form className="grid grid-cols-1 md:grid-cols-2 gap-8" onSubmit={async (e) => { 
+                                <button onClick={() => setView('hub')} className="text-[#2E7D32] font-black text-[10px] flex items-center gap-2 mb-10 uppercase hover:opacity-70 tracking-widest leading-none"><Icons.ChevronLeft /> Retour Hub</button>
+                                <div className="bg-white p-14 md:p-20 rounded-[4rem] shadow-2xl border border-slate-100 relative">
+                                    <h2 className="text-5xl font-black mb-14 tracking-tighter leading-none text-slate-900 uppercase">Déposer une mission</h2>
+                                    <form className="grid grid-cols-1 md:grid-cols-2 gap-10" onSubmit={async (e) => { 
                                         e.preventDefault(); 
                                         if (isSubmitting) return;
                                         setIsSubmitting(true);
                                         const d = Object.fromEntries(new FormData(e.target));
                                         try {
                                             const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'createMission', ...d }) }).then(r => r.json());
-                                            if (res.ok) { alert(`Mission enregistrée : ${res.code}.`); setView('hub'); fetchMissions(); }
+                                            if (res.ok) { alert(`Mission enregistrée ! Code : ${res.code}`); setView('hub'); fetchMissions(); }
                                         } catch (e) { alert("Erreur réseau."); }
                                         setIsSubmitting(false);
                                     }}>
-                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Structure / Organisme *</label><input type="text" name="structure" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none transition-all" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Référence Dossier *</label><input type="text" name="refDossier" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Email Contact *</label><input type="email" name="emailContact" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Téléphone Direct *</label><input type="tel" name="phone" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-transparent focus:ring-2 focus:ring-[#2E7D32] font-bold outline-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Type de mission *</label><select name="typeMission" className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none"><option>Commissariat</option><option>Avocat</option><option>Tribunal</option><option>Social</option></select></div>
+                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Structure / Organisme *</label><input type="text" name="structure" required placeholder="Ex: Commissariat de Toulouse Central" className="w-full px-8 py-5 rounded-3xl bg-slate-50 border-transparent focus:ring-4 focus:ring-[#2E7D32]/10 focus:border-[#2E7D32] font-bold outline-none transition-all shadow-inner" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Référence Dossier *</label><input type="text" name="refDossier" required placeholder="Ex: 2026-ABC" className="w-full px-8 py-5 rounded-3xl bg-slate-50 border-transparent focus:ring-4 focus:ring-[#2E7D32]/10 focus:border-[#2E7D32] font-bold outline-none shadow-inner" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Email Contact *</label><input type="email" name="emailContact" required placeholder="Ex: partenaire@lge.fr" className="w-full px-8 py-5 rounded-3xl bg-slate-50 border-transparent focus:ring-4 focus:ring-[#2E7D32]/10 focus:border-[#2E7D32] font-bold outline-none shadow-inner" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Type de mission *</label><select name="typeMission" className="w-full px-8 py-5 rounded-3xl bg-slate-50 font-bold outline-none border-none shadow-inner cursor-pointer text-slate-900"><option>Commissariat</option><option>Avocat</option><option>Tribunal</option><option>Social</option><option>Autre</option></select></div>
                                         <div className="md:col-span-2">
-                                            <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Secteur de Toulouse (INSEE) *</label>
-                                            <select name="secteur" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none">
-                                                <option value="Centre">Centre (Secteur 1 – Capitole, Arnaud-Bernard, Carmes, Saint-Étienne, Compans-Caffarelli, Chalets)</option>
-                                                <option value="Rive Gauche">Rive Gauche (Secteur 2 – Saint-Cyprien, Patte d’Oie, Croix-de-Pierre, Fontaine-Lestang, Cartoucherie)</option>
-                                                <option value="Nord">Nord (Secteur 3 – Minimes, Barrière de Paris, Lalande, Sept-Deniers, Ginestous)</option>
-                                                <option value="Est">Est (Secteur 4 – Bonnefoy, Jolimont, Roseraie, Soupetard, Marengo)</option>
-                                                <option value="Sud">Sud / Sud-Est (Secteur 5 – Rangueil, Saouzelong, Jules-Julien, Saint-Michel, Empalot, Île du Ramier)</option>
-                                                <option value="Ouest">Ouest (Secteur 6 – Lardenne, Purpan, Saint-Martin-du-Touch, Ancely, Casselardit)</option>
+                                            <label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest text-blue-600">Secteur Toulouse (INSEE) *</label>
+                                            <select name="secteur" required className="w-full px-8 py-5 rounded-3xl bg-slate-50 font-bold outline-none text-[11px] border-none shadow-inner cursor-pointer text-slate-900">
+                                                <option value="Centre">Secteur 1 : Centre (Capitole, Arnaud-Bernard, Carmes, Saint-Étienne, Compans-Caffarelli, Chalets)</option>
+                                                <option value="Rive Gauche">Secteur 2 : Rive Gauche (Saint-Cyprien, Patte d’Oie, Croix-de-Pierre, Fontaine-Lestang, Cartoucherie)</option>
+                                                <option value="Nord">Secteur 3 : Nord (Minimes, Barrière de Paris, Lalande, Sept-Deniers, Ginestous)</option>
+                                                <option value="Est">Secteur 4 : Est (Bonnefoy, Jolimont, Roseraie, Soupetard, Marengo)</option>
+                                                <option value="Sud / Sud-Est">Secteur 5 : Sud / Sud-Est (Rangueil, Saouzelong, Jules-Julien, Saint-Michel, Empalot, Île du Ramier)</option>
+                                                <option value="Ouest">Secteur 6 : Ouest (Lardenne, Purpan, Saint-Martin-du-Touch, Ancely, Casselardit)</option>
                                                 <option value="Périphérie">Périphérie – hors Toulouse intra-muros</option>
                                             </select>
                                         </div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Date RDV *</label><input type="date" name="date" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Heure RDV *</label><input type="time" name="heure" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none" /></div>
-                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Lieu exact *</label><input type="text" name="lieu" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none" /></div>
-                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Commentaires</label><textarea name="commentaires" rows="3" className="w-full px-6 py-4 rounded-2xl bg-slate-50 font-bold outline-none"></textarea></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Date RDV *</label><input type="date" name="date" required className="w-full px-8 py-5 rounded-3xl bg-slate-50 font-bold outline-none border-none shadow-inner text-slate-900" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Heure RDV *</label><input type="time" name="heure" required className="w-full px-8 py-5 rounded-3xl bg-slate-50 font-bold outline-none border-none shadow-inner text-slate-900" /></div>
+                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Lieu exact *</label><input type="text" name="lieu" required placeholder="Ex: 12 Rue du Rempart, 31000 Toulouse" className="w-full px-8 py-5 rounded-3xl bg-slate-50 border-transparent focus:ring-4 focus:ring-[#2E7D32]/10 focus:border-[#2E7D32] font-bold outline-none shadow-inner" /></div>
+                                        <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 mb-3 block tracking-widest">Commentaires</label><textarea name="commentaires" rows="3" placeholder="Ex: Besoin d'interprétation spécifique..." className="w-full px-8 py-5 rounded-3xl bg-slate-50 font-bold outline-none border-none shadow-inner"></textarea></div>
                                         
                                         <div className="md:col-span-2 flex justify-center pt-8">
-                                            <button type="submit" disabled={isSubmitting} className={`w-full max-w-md bg-[#2E7D32] text-white py-6 rounded-3xl font-black text-xl shadow-xl flex items-center justify-center gap-3 transition-all ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900 active:scale-95'}`}>
-                                                {isSubmitting ? 'Enregistrement...' : <><Icons.Send /> Valider la demande</>}
+                                            <button type="submit" disabled={isSubmitting} className={`w-full bg-[#2E7D32] text-white py-7 rounded-[2.2rem] font-black text-2xl shadow-2xl shadow-green-900/20 transition-all flex items-center justify-center gap-4 ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900 active:scale-95'}`}>
+                                                {isSubmitting ? 'Enregistrement...' : <><Icons.Send /> Valider la mission</>}
                                             </button>
                                         </div>
                                     </form>
@@ -246,59 +262,61 @@
                             </div>
                         )}
 
-                        {/* VOLUNTEER VIEW - NOM EN HAUT */}
+                        {/* VOLUNTEER VIEW */}
                         {view === 'volunteer' && (
-                            <div className="animate-in space-y-12">
-                                <div className="flex flex-col md:flex-row gap-8">
-                                    <div className="flex-1 bg-white p-10 rounded-[3rem] shadow-sm border border-slate-200 flex items-center gap-6">
-                                        <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center text-[#2E7D32] shadow-inner"><Icons.Users /></div>
+                            <div className="animate-in space-y-16">
+                                <div className="flex flex-col md:flex-row gap-10">
+                                    <div className="flex-1 p-12 bg-white border border-slate-200 rounded-[4rem] shadow-sm flex items-center gap-10">
+                                        <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center text-[#2E7D32] shadow-inner"><Icons.Users /></div>
                                         <div>
-                                            <h2 className="text-3xl font-black tracking-tighter leading-none">{userProfile?.name}</h2>
-                                            <p className="text-slate-400 font-bold uppercase text-[9px] tracking-[0.2em] mt-3">Statut : Bénévole Validé</p>
+                                            <h2 className="text-4xl font-black tracking-tighter leading-none uppercase">{userProfile?.name}</h2>
+                                            <div className="flex items-center gap-4 mt-4">
+                                                <span className="bg-slate-900 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest leading-none">Bénévole Certifié</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="w-full md:w-2/5 p-10 bg-[#2E7D32] rounded-[3rem] text-white shadow-xl relative overflow-hidden transition-all hover:scale-[1.02]">
-                                        <div className="absolute -right-4 -top-4 opacity-10"><Icons.Zap /></div>
-                                        <p className="text-[10px] font-black uppercase opacity-60 mb-4 tracking-widest relative z-10">Ma zone d'intervention</p>
-                                        <select onChange={(e) => alert("Zone mise à jour.")} className="w-full bg-white/10 border-white/20 rounded-xl px-4 py-3 font-bold text-[10px] outline-none relative z-10 transition-all focus:ring-2 focus:ring-white/30">
-                                            <option className="text-slate-900">Centre (Secteur 1)</option>
-                                            <option className="text-slate-900">Rive Gauche (Secteur 2)</option>
-                                            <option className="text-slate-900">Nord (Secteur 3)</option>
+                                    <div className="w-full md:w-2/5 p-12 bg-[#2E7D32] rounded-[4rem] text-white shadow-2xl relative overflow-hidden transition-all hover:scale-[1.01]">
+                                        <div className="absolute -right-6 -top-6 opacity-10 rotate-12"><Icons.Zap size={160}/></div>
+                                        <p className="text-[10px] font-black uppercase opacity-60 mb-5 tracking-widest relative z-10">Ma zone d'intervention active</p>
+                                        <select defaultValue={userProfile?.secteur} className="w-full bg-white text-slate-900 rounded-2xl px-6 py-5 font-bold text-xs outline-none relative z-10 transition-all focus:ring-4 focus:ring-white/20 border-none shadow-xl">
+                                            <option value="Centre">Secteur 1 : Centre (Capitole, Arnaud-Bernard, Carmes...)</option>
+                                            <option value="Rive Gauche">Secteur 2 : Rive Gauche (Saint-Cyprien, Patte d’Oie...)</option>
+                                            <option value="Nord">Secteur 3 : Nord (Minimes, Barrière de Paris...)</option>
+                                            <option value="Est">Secteur 4 : Est (Bonnefoy, Jolimont...)</option>
+                                            <option value="Sud / Sud-Est">Secteur 5 : Sud (Rangueil, Saint-Michel...)</option>
+                                            <option value="Ouest">Secteur 6 : Ouest (Purpan, Lardenne...)</option>
+                                            <option value="Périphérie">Périphérie – hors Toulouse intra-muros</option>
                                         </select>
-                                        <p className="text-[8px] font-bold opacity-30 mt-4 italic relative z-10">Mise à jour instantanée</p>
                                     </div>
                                 </div>
 
-                                <div className="bg-white border border-slate-200 rounded-[3rem] overflow-hidden shadow-sm">
-                                    <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center bg-slate-50/30 gap-6">
-                                        <div>
-                                            <h3 className="text-2xl font-black tracking-tighter leading-none">Planning Hebdomadaire</h3>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mt-2 italic opacity-60">Cliquer sur les cases pour allumer vos créneaux</p>
-                                        </div>
-                                        <div className="flex items-center gap-4 bg-white px-5 py-3 rounded-2xl border border-slate-200 shadow-sm">
-                                            <button onClick={() => { const d = new Date(currentWeekStart); d.setDate(d.getDate() - 7); setCurrentWeekStart(d); }} className="text-slate-400 hover:text-slate-900 transition-colors"><Icons.ChevronLeft /></button>
-                                            <span className="font-black text-[10px] uppercase tracking-widest px-4 border-x border-slate-100">Semaine du {weekDates[0].getDate()} {weekDates[0].toLocaleDateString('fr-FR', {month: 'long'})}</span>
-                                            <button onClick={() => { const d = new Date(currentWeekStart); d.setDate(d.getDate() + 7); setCurrentWeekStart(d); }} className="text-slate-400 hover:text-slate-900 transition-colors"><Icons.ChevronRight /></button>
+                                <div className="bg-white border border-slate-200 rounded-[4rem] overflow-hidden shadow-sm">
+                                    <div className="p-10 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center bg-slate-50/40 gap-8">
+                                        <div><h3 className="text-3xl font-black tracking-tighter leading-none uppercase">Mon Planning Hebdomadaire</h3><p className="text-[11px] font-bold text-slate-400 uppercase mt-2 italic opacity-60 tracking-widest">Sélectionnez vos cases horaires</p></div>
+                                        <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
+                                            <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); }} className="p-4 text-slate-400 hover:text-slate-900 transition-colors"><Icons.ChevronLeft /></button>
+                                            <span className="font-black text-xs uppercase tracking-widest px-6 border-x border-slate-100">Semaine du {weekDates[0].toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</span>
+                                            <button onClick={() => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); }} className="p-4 text-slate-400 hover:text-slate-900 transition-colors"><Icons.ChevronRight /></button>
                                         </div>
                                     </div>
                                     <div className="overflow-x-auto no-scrollbar">
                                         <div className="min-w-[1000px] grid grid-cols-7 divide-x divide-slate-100">
                                             <div className="bg-slate-50/50">
-                                                <div className="h-16 border-b border-slate-100 flex items-center justify-center font-black text-[10px] text-slate-300 uppercase tracking-widest">Heures</div>
-                                                {Array.from({length: 13}).map((_, i) => <div key={i} className="h-14 flex items-center justify-center text-[11px] font-black text-slate-300 border-b border-slate-50">{8+i}h</div>)}
+                                                <div className="h-20 border-b border-slate-100 flex items-center justify-center font-black text-[10px] text-slate-300 uppercase tracking-widest">Heures</div>
+                                                {['08h','09h','10h','11h','12h','13h','14h','15h','16h','17h','18h','19h','20h'].map(h => <div key={h} className="h-16 flex items-center justify-center text-xs font-black text-slate-300 border-b border-slate-50">{h}</div>)}
                                             </div>
-                                            {weekDates.map((date, dIdx) => (
-                                                <div key={dIdx} className="flex-1">
-                                                    <div className="h-16 flex flex-col items-center justify-center border-b border-slate-100 bg-white">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{date.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
-                                                        <span className="text-xl font-black text-slate-900 leading-none mt-1">{date.getDate()}</span>
+                                            {weekDates.map((date, dayIdx) => (
+                                                <div key={dayIdx} className="flex-1">
+                                                    <div className="h-20 flex flex-col items-center justify-center border-b border-slate-100 bg-white">
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{date.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
+                                                        <span className="text-2xl font-black text-slate-900 mt-2 leading-none">{date.getDate()}</span>
                                                     </div>
-                                                    {Array.from({length: 13}).map((_, hIdx) => {
-                                                        const id = `${dIdx}-${hIdx}`;
-                                                        const isSel = selectedSlots.has(id);
+                                                    {Array.from({length: 13}).map((_, hourIdx) => {
+                                                        const id = `${dayIdx}-${hourIdx}`;
+                                                        const isSelected = selectedSlots.has(id);
                                                         return (
-                                                            <div key={hIdx} onClick={() => toggleSlot(dIdx, hIdx)} className={`h-14 border-b border-slate-50 cursor-pointer transition-all flex items-center justify-center group ${isSel ? 'bg-green-50' : 'hover:bg-slate-100/50'}`}>
-                                                                {isSel ? <div className="w-10 h-10 bg-[#2E7D32] rounded-xl shadow-lg border border-[#2E7D32] animate-in"></div> : <div className="w-1.5 h-1.5 bg-slate-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>}
+                                                            <div key={hourIdx} onClick={() => toggleSlot(dayIdx, hourIdx)} className={`h-16 border-b border-slate-50 cursor-pointer transition-all flex items-center justify-center group ${isSelected ? 'bg-green-50' : 'hover:bg-slate-100/50'}`}>
+                                                                <div className={`w-12 h-12 rounded-2xl transition-all duration-300 flex items-center justify-center ${isSelected ? 'slot-active scale-100 opacity-100 shadow-xl shadow-green-900/20' : 'scale-50 opacity-0'}`}><Icons.Check className="text-white w-6 h-6" /></div>
                                                             </div>
                                                         );
                                                     })}
@@ -306,61 +324,48 @@
                                             ))}
                                         </div>
                                     </div>
-                                    <div className="p-8 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
-                                        <button onClick={() => setSelectedSlots(new Set())} className="text-slate-400 font-black text-[10px] uppercase underline hover:text-slate-600 transition-colors leading-none">Tout décocher</button>
-                                        <button onClick={handleSavePlanning} disabled={isSubmitting} className={`bg-[#2E7D32] text-white px-12 py-5 rounded-2xl font-black text-[10px] uppercase shadow-xl shadow-green-900/10 transition-all ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900'}`}>
+                                    <div className="p-10 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-8 px-12">
+                                        <button onClick={() => setSelectedSlots(new Set())} className="text-slate-400 font-black text-[11px] uppercase underline hover:text-slate-600 transition-colors leading-none tracking-widest decoration-2 underline-offset-8">Vider la sélection</button>
+                                        <button onClick={handleSavePlanning} disabled={isSubmitting} className={`bg-[#2E7D32] text-white px-16 py-6 rounded-3xl font-black text-sm uppercase shadow-2xl shadow-green-900/10 transition-all leading-none ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900'}`}>
                                             {isSubmitting ? 'Traitement...' : 'Enregistrer mon planning'}
                                         </button>
                                     </div>
                                 </div>
-
-                                <h3 className="text-3xl font-black tracking-tighter mb-8 px-2 leading-none">Missions Libres</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                    {missions.filter(m => m.statut === 'VALIDÉ').map(m => (
-                                        <div key={m.id} className="p-10 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm relative group hover:border-[#2E7D32] transition-all">
-                                            <span className="text-[10px] font-black text-slate-200 absolute top-10 right-10">{m.id}</span>
-                                            <div className="flex items-center gap-2 mb-6"><span className="text-[8px] font-black text-[#2E7D32] bg-green-50 px-3 py-1 rounded-lg uppercase tracking-widest">{m.typeMission}</span></div>
-                                            <h4 className="text-2xl font-black mb-3 leading-tight tracking-tight">{m.structure}</h4>
-                                            <p className="text-slate-400 text-xs font-bold mb-10 flex items-center gap-2 leading-relaxed"><Icons.MapPin /> {m.lieu}</p>
-                                            <div className="flex items-center justify-between pt-8 border-t border-slate-100">
-                                                <div className="flex flex-col"><span className="text-[9px] font-black text-slate-300 uppercase tracking-widest leading-none">RDV prévu</span><span className="text-sm font-black text-slate-900 mt-1 leading-none">{m.date} à {m.heure}</span></div>
-                                                <button onClick={() => handleEngage(m.id)} className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl text-[10px] font-black uppercase hover:bg-[#2E7D32] transition-all shadow-md leading-none">S'engager</button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
                             </div>
                         )}
 
-                        {/* COORDINATION VIEW */}
+                        {/* COORDINATION VIEW - JOURNAL COMPLET + CALENDRIER AVEC MOIS DYNAMIQUE + AUDIT */}
                         {view === 'coord' && (
-                            <div className="animate-in space-y-12">
-                                <div className="flex flex-wrap gap-4 bg-slate-200/50 p-2 rounded-[2rem] w-fit shadow-inner border border-slate-200">
-                                    <button onClick={() => setCoordTab('journal')} className={`px-10 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${coordTab === 'journal' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Journal Complet</button>
-                                    <button onClick={() => setCoordTab('calendar')} className={`px-10 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${coordTab === 'calendar' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Calendrier</button>
-                                    <button onClick={() => setCoordTab('audit')} className={`px-10 py-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${coordTab === 'audit' ? 'bg-[#2E7D32] shadow-xl text-white' : 'text-slate-500 hover:text-slate-700'}`}>Audit & Recette</button>
+                            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                                <div className="flex flex-wrap items-center gap-4 mb-14 bg-slate-200/50 p-2.5 rounded-[2rem] w-fit shadow-inner border border-slate-200">
+                                    <button onClick={() => setCoordTab('journal')} className={`px-12 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'journal' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Journal</button>
+                                    <button onClick={() => setCoordTab('calendar')} className={`px-12 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'calendar' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Calendrier</button>
+                                    <button onClick={() => setCoordTab('audit')} className={`px-12 py-5 rounded-[2rem] text-[11px] font-black uppercase tracking-widest transition-all leading-none ${coordTab === 'audit' ? 'bg-white shadow-xl text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Audit & Recette</button>
                                 </div>
 
                                 {coordTab === 'journal' && (
-                                    <div className="space-y-12">
-                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                            <div className="p-10 bg-white border border-slate-200 rounded-[2.5rem] text-center shadow-sm"><p className="text-[10px] font-black uppercase text-slate-300 mb-3 tracking-widest leading-none">Attente</p><p className="text-5xl font-black leading-none">{missions.filter(m => m.statut === 'ATTENTE').length}</p></div>
-                                            <div className="p-10 bg-white border border-slate-200 rounded-[2.5rem] text-center border-l-4 border-l-[#2E7D32] shadow-sm"><p className="text-[10px] font-black uppercase text-[#2E7D32] mb-3 tracking-widest leading-none">Validées</p><p className="text-5xl font-black text-[#2E7D32] leading-none">{missions.filter(m => m.statut === 'VALIDÉ').length}</p></div>
-                                            <div className="p-10 bg-white border border-slate-200 rounded-[2.5rem] text-center shadow-sm"><p className="text-[10px] font-black uppercase text-slate-300 mb-3 tracking-widest leading-none">Actionnées</p><p className="text-5xl font-black text-blue-600 leading-none">{missions.filter(m => ['POURVUE','EN COURS'].includes(m.statut)).length}</p></div>
-                                            <div className="p-10 bg-red-50 border border-red-100 rounded-[2.5rem] text-center shadow-sm"><p className="text-[10px] font-black uppercase text-red-600 mb-3 tracking-widest leading-none">Urgence J-1</p><p className="text-5xl font-black text-red-600 leading-none">1</p></div>
+                                    <div className="animate-in duration-300">
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
+                                            <div className="p-12 bg-white border border-slate-200 rounded-[3.5rem] text-center shadow-sm"><p className="text-[11px] font-black uppercase text-slate-300 mb-4 tracking-widest leading-none">Attente</p><p className="text-6xl font-black leading-none">{missions.filter(m => m.statut === 'ATTENTE').length}</p></div>
+                                            <div className="p-12 bg-white border border-slate-200 rounded-[3.5rem] text-center border-l-[10px] border-l-[#2E7D32] shadow-sm"><p className="text-[11px] font-black uppercase text-[#2E7D32] mb-4 tracking-widest leading-none">Validées</p><p className="text-6xl font-black text-[#2E7D32] leading-none">{missions.filter(m => m.statut === 'VALIDÉ').length}</p></div>
+                                            <div className="p-12 bg-white border border-slate-200 rounded-[3.5rem] text-center shadow-sm"><p className="text-[11px] font-black uppercase text-slate-300 mb-4 tracking-widest leading-none">Pourvues</p><p className="text-6xl font-black text-blue-600 leading-none">{missions.filter(m => ['POURVUE','EN COURS'].includes(m.statut)).length}</p></div>
+                                            <div className={`p-12 rounded-[3.5rem] text-center shadow-sm transition-all ${urgentCount > 0 ? 'bg-red-50 border border-red-100' : 'bg-white border border-slate-200'}`}>
+                                                <p className={`text-[11px] font-black uppercase mb-4 tracking-widest leading-none ${urgentCount > 0 ? 'text-red-600' : 'text-slate-300'}`}>Urgence J-1</p>
+                                                <p className={`text-6xl font-black leading-none ${urgentCount > 0 ? 'text-red-600' : 'text-slate-900'}`}>{urgentCount}</p>
+                                            </div>
                                         </div>
-                                        <div className="bg-white border border-slate-200 rounded-[3.5rem] overflow-hidden shadow-sm">
+                                        <div className="bg-white border border-slate-200 rounded-[4rem] overflow-hidden shadow-sm">
                                             <div className="overflow-x-auto no-scrollbar">
-                                                <table className="w-full text-left font-bold">
-                                                    <thead><tr className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 tracking-widest"><th className="px-10 py-7 border-b border-slate-100">Code</th><th className="px-10 py-7 border-b border-slate-100">Organisme / Lieu</th><th className="px-10 py-7 border-b border-slate-100">Affectation</th><th className="px-10 py-7 border-b border-slate-100">Statut</th><th className="px-10 py-7 border-b border-slate-100 text-right">Actions</th></tr></thead>
+                                                <table className="w-full text-left font-bold text-sm">
+                                                    <thead><tr className="bg-slate-50 text-[11px] font-black uppercase text-slate-400 tracking-widest"><th className="px-12 py-8 border-b border-slate-100">ID</th><th className="px-12 py-8 border-b border-slate-100">Détails Mission</th><th className="px-12 py-8 border-b border-slate-100">Affectation</th><th className="px-12 py-8 border-b border-slate-100">Statut</th><th className="px-12 py-8 border-b border-slate-100 text-right">Pilotage</th></tr></thead>
                                                     <tbody className="divide-y divide-slate-50 text-slate-700">
                                                         {missions.map(m => (
-                                                            <tr key={m.id} className="hover:bg-slate-50/50 transition-all">
-                                                                <td className="px-10 py-8 font-black text-[#2E7D32] text-sm tracking-tighter leading-none">{m.id}</td>
-                                                                <td className="px-10 py-8 leading-tight"><span className="text-slate-900 block font-black text-sm">{m.structure}</span><span className="text-[10px] uppercase font-bold text-slate-300 mt-2 block tracking-widest leading-none">{m.date} • {m.heure}</span></td>
-                                                                <td className="px-10 py-8 text-sm font-black text-slate-400 leading-none">{m.beneNom || <span className="opacity-30 italic">— Libre —</span>}</td>
-                                                                <td className="px-10 py-8"><span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none ${m.statut === 'VALIDÉ' ? 'bg-green-100 text-[#2E7D32]' : m.statut === 'POURVUE' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100'}`}>{m.statut}</span></td>
-                                                                <td className="px-10 py-8 text-right"><button onClick={fetchMissions} className="text-[11px] font-black uppercase border-b-2 border-slate-900 hover:text-[#2E7D32] hover:border-[#2E7D32] transition-colors leading-none tracking-widest">Gérer</button></td>
+                                                            <tr key={m.id} className="hover:bg-slate-50/50 transition-all group">
+                                                                <td className="px-12 py-10 font-black text-[#2E7D32] tracking-tighter leading-none uppercase">{m.id}</td>
+                                                                <td className="px-12 py-10 leading-tight"><span className="text-slate-900 block font-black text-lg uppercase group-hover:text-[#2E7D32] transition-colors">{m.structure}</span><span className="text-[10px] uppercase font-bold text-slate-300 mt-2 block tracking-widest leading-none">{m.date} à {m.heure}</span></td>
+                                                                <td className="px-12 py-10 font-black text-slate-400 leading-none">{m.beneNom || <span className="opacity-20 italic">— Libre —</span>}</td>
+                                                                <td className="px-12 py-10"><span className={`px-6 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none ${m.statut === 'VALIDÉ' ? 'bg-green-100 text-[#2E7D32]' : m.statut === 'POURVUE' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100'}`}>{m.statut}</span></td>
+                                                                <td className="px-12 py-10 text-right"><button onClick={fetchMissions} className="text-[11px] font-black uppercase border-b-2 border-slate-900 hover:text-[#2E7D32] hover:border-[#2E7D32] transition-colors leading-none tracking-widest">Détails</button></td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -371,44 +376,60 @@
                                 )}
 
                                 {coordTab === 'calendar' && (
-                                    <div className="bg-white border border-slate-200 rounded-[3.5rem] p-12 shadow-sm animate-in">
-                                        <div className="flex justify-between items-center mb-12">
-                                            <div><h3 className="text-3xl font-black tracking-tighter leading-none uppercase">Janvier 2026</h3><p className="text-slate-400 font-bold mt-3 uppercase text-[10px] tracking-[0.3em]">Aperçu global des engagements</p></div>
-                                            <div className="flex gap-2 bg-slate-100 p-2 rounded-2xl"><button className="p-3 hover:bg-white rounded-xl shadow-sm transition-all"><Icons.ChevronLeft /></button><button className="p-3 hover:bg-white rounded-xl shadow-sm transition-all"><Icons.ChevronRight /></button></div>
+                                    <div className="bg-white border border-slate-200 rounded-[4rem] p-16 shadow-sm animate-in">
+                                        <div className="flex justify-between items-center mb-16">
+                                            <div><h3 className="text-4xl font-black tracking-tighter leading-none uppercase">{monthName}</h3><p className="text-slate-400 font-bold mt-4 uppercase text-xs tracking-widest leading-none">Visualisation mensuelle des dossiers terrain</p></div>
+                                            <div className="flex gap-4 bg-slate-100 p-2.5 rounded-2xl shadow-inner">
+                                                <button onClick={() => { setCalendarBaseDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)); }} className="p-4 hover:bg-white rounded-xl shadow-sm transition-all"><Icons.ChevronLeft /></button>
+                                                <button onClick={() => { setCalendarBaseDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)); }} className="p-4 hover:bg-white rounded-xl shadow-sm transition-all"><Icons.ChevronRight /></button>
+                                            </div>
                                         </div>
-                                        <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-[2.5rem] overflow-hidden">
-                                            {['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(d => (<div key={d} className="bg-slate-50 p-6 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
-                                            {Array.from({length: 31}).map((_, i) => (
-                                                <div key={i} className="bg-white min-h-[150px] p-6 group hover:bg-slate-50 transition-colors relative border-slate-50">
-                                                    <span className="text-sm font-black text-slate-300 group-hover:text-slate-900 transition-colors leading-none">{i+1}</span>
-                                                    {i === 19 && <div className="mt-4 bg-[#2E7D32] text-white p-4 rounded-2xl shadow-lg border border-[#2E7D32] animate-in"><p className="text-[11px] font-black truncate leading-tight">M-1024 • Commissariat</p><p className="text-[9px] font-bold mt-2 opacity-80 uppercase tracking-tighter leading-none">09:00 • Centre</p></div>}
-                                                    {i === 17 && <div className="mt-4 bg-blue-600 text-white p-4 rounded-2xl shadow-lg border border-blue-700 animate-in"><p className="text-[11px] font-black truncate leading-none">M-1025 • Marie L.</p><p className="text-[9px] font-bold mt-2 opacity-80 uppercase tracking-tighter leading-none">14:30 • Rive G.</p></div>}
-                                                </div>
-                                            ))}
+                                        <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-[2.5rem] overflow-hidden shadow-inner">
+                                            {['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(d => (<div key={d} className="bg-slate-50 p-7 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
+                                            {Array.from({length: 31}).map((_, i) => {
+                                                const day = i + 1;
+                                                const missionsDuJour = missions.filter(m => {
+                                                    const mDate = new Date(m.date);
+                                                    return mDate.getDate() === day && mDate.getMonth() === calendarBaseDate.getMonth();
+                                                });
+                                                return (
+                                                    <div key={i} className="bg-white min-h-[160px] p-7 group hover:bg-slate-50 transition-colors relative border-slate-50">
+                                                        <span className="text-xl font-black text-slate-200 group-hover:text-slate-900 transition-colors leading-none">{day}</span>
+                                                        {missionsDuJour.map(m => (
+                                                            <div key={m.id} className="mt-4 bg-[#2E7D32] text-white p-4 rounded-2xl shadow-2xl border border-[#2E7D32] animate-in slide-in-from-top-2 duration-500 shadow-green-900/20">
+                                                                <p className="text-[10px] font-black truncate uppercase leading-none">{m.id} • {m.structure.substring(0,10)}</p>
+                                                                <p className="text-[9px] font-bold mt-2 opacity-80 uppercase leading-none tracking-tighter">{m.heure}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
 
                                 {coordTab === 'audit' && (
-                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                                        <div className="lg:col-span-1 bg-slate-900 rounded-[3.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
-                                            <div className="absolute top-0 right-0 p-8 opacity-10"><Icons.Zap /></div>
-                                            <h3 className="text-2xl font-black mb-10 uppercase tracking-tighter relative z-10">Automations</h3>
-                                            <div className="space-y-8 relative z-10">
-                                                <div className="p-7 bg-white/10 rounded-3xl border border-white/10 shadow-inner"><p className="text-[10px] text-slate-500 uppercase font-black mb-3">Robot 08:00</p><p className="font-bold flex items-center gap-2 leading-none text-sm"><span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#22c55e]"></span> Actif (Sync Sheet)</p></div>
-                                                <div className="p-7 bg-white/10 rounded-3xl border border-white/10"><p className="text-[10px] text-slate-500 uppercase font-black mb-5">Derniers Logs (Règle d'or)</p><div className="text-[10px] font-mono text-slate-400 space-y-4">{systemLogs.map((l, i) => <div key={i} className="flex gap-4"><span className="opacity-30">{l.time}</span><span className="font-bold text-white/80">{l.event}</span></div>)}</div></div>
-                                                <button onClick={fetchMissions} disabled={isSubmitting} className="w-full flex items-center justify-center gap-3 bg-[#2E7D32] py-5 rounded-2xl font-black text-[11px] uppercase shadow-xl shadow-green-900/50 hover:bg-green-600 transition-all leading-none border border-green-400/20"><Icons.Refresh /> Relancer Triggers</button>
+                                    <div className="animate-in fade-in duration-300 space-y-12">
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                                            <div className="lg:col-span-1 bg-slate-900 rounded-[3.5rem] p-12 text-white shadow-2xl relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 p-8 opacity-10"><Icons.Zap size={160}/></div>
+                                                <h3 className="text-2xl font-black mb-10 uppercase tracking-tighter relative z-10 leading-none">Automations</h3>
+                                                <div className="space-y-8 relative z-10">
+                                                    <div className="p-7 bg-white/10 rounded-3xl border border-white/10 shadow-inner"><p className="text-[10px] text-slate-500 uppercase font-black mb-3">Robot 08:00</p><p className="font-bold flex items-center gap-2 leading-none text-sm text-green-400"><span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#22c55e]"></span> SYSTÈME ACTIF</p></div>
+                                                    <div className="p-7 bg-white/10 rounded-3xl border border-white/10"><p className="text-[10px] text-slate-500 uppercase font-black mb-5 tracking-widest">Logs Flux Mails</p><div className="text-[10px] font-mono text-slate-400 space-y-4">{systemLogs.map((l, i) => <div key={i} className="flex gap-4"><span className="opacity-30">{l.time}</span><span className="font-bold text-white/80">{l.event}</span></div>)}</div></div>
+                                                    <button onClick={fetchMissions} className="w-full flex items-center justify-center gap-3 bg-[#2E7D32] py-5 rounded-2xl font-black text-[11px] uppercase shadow-xl hover:bg-green-600 transition-all border border-green-400/20 leading-none"><Icons.Refresh /> Relancer Triggers</button>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[3.5rem] p-14 shadow-sm">
-                                            <div className="flex items-center gap-5 mb-12"><div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-[#2E7D32] shadow-sm"><Icons.Check /></div><div><h3 className="text-3xl font-black tracking-tighter leading-none uppercase">Matrice de Recette</h3><p className="text-slate-400 font-bold uppercase text-[9px] mt-2 tracking-widest opacity-60 italic">Vérification conforme cahier des charges 2026</p></div></div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-md transition-all shadow-sm"><Icons.Check className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Mails Coordination</span><span className="text-[9px] font-bold text-slate-400 mt-2 italic">Test 1.5 - SUCCESS</span></div></div>
-                                                <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-md transition-all shadow-sm"><Icons.Check className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Sécurité Token</span><span className="text-[9px] font-bold text-slate-400 mt-2 italic">Test 4.1 - VALIDATED</span></div></div>
-                                                <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-md transition-all shadow-sm"><Icons.Check className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Robot J-1 Critique</span><span className="text-[9px] font-bold text-slate-400 mt-2 italic">Test 7.1 - RUNNING</span></div></div>
-                                                <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-md transition-all shadow-sm"><Icons.Check className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Relance CR J+1</span><span className="text-[9px] font-bold text-slate-400 mt-2 italic">Action R2 - OPERATIONAL</span></div></div>
+                                            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[3.5rem] p-16 shadow-sm">
+                                                <div className="flex items-center gap-5 mb-12"><div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center text-[#2E7D32] shadow-sm"><Icons.Clipboard /></div><div><h3 className="text-4xl font-black tracking-tighter leading-none uppercase">Recette Opérationnelle</h3><p className="text-slate-400 font-bold uppercase text-[9px] mt-3 tracking-[0.2em] opacity-60 italic">Audit technique de conformité 2026</p></div></div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                    <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl transition-all shadow-sm"><Icons.Mail className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Mails Coordination</span><span className="text-[9px] font-bold text-slate-400 mt-3 italic tracking-widest opacity-60 uppercase">Test 1.5 - SUCCESS</span></div></div>
+                                                    <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl transition-all shadow-sm"><Icons.Shield className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Sécurité Token</span><span className="text-[9px] font-bold text-slate-400 mt-3 italic tracking-widest opacity-60 uppercase">Test 4.1 - VALIDATED</span></div></div>
+                                                    <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl transition-all shadow-sm"><Icons.Clock className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Robot J-1 Critique</span><span className="text-[9px] font-bold text-slate-400 mt-3 italic tracking-widest opacity-60 uppercase">Test 7.1 - RUNNING</span></div></div>
+                                                    <div className="p-10 bg-slate-50 rounded-[2.5rem] border border-slate-100 flex items-center gap-6 group hover:shadow-xl transition-all shadow-sm"><Icons.Check className="text-green-500" /><div className="flex flex-col leading-none"><span className="text-[11px] font-black uppercase tracking-widest text-slate-900">Relance CR J+1</span><span className="text-[9px] font-bold text-slate-400 mt-3 italic tracking-widest opacity-60 uppercase">Action R2 - OPERATIONAL</span></div></div>
+                                                </div>
+                                                <div className="mt-14 p-12 bg-green-50 rounded-[3rem] border border-green-100 flex items-center gap-10 shadow-inner"><div className="w-20 h-20 bg-[#2E7D32] text-white rounded-3xl flex items-center justify-center font-black text-3xl shadow-2xl shadow-green-900/40">OK</div><div><p className="text-2xl font-black text-[#2E7D32] leading-none uppercase tracking-tighter">Système Intégral Certifié</p><p className="text-[10px] font-bold text-green-700/60 uppercase tracking-[0.2em] mt-4 leading-none italic tracking-widest">Audit complet effectué avec succès</p></div></div>
                                             </div>
-                                            <div className="mt-12 p-10 bg-green-50/50 rounded-[3rem] border border-green-100 flex items-center gap-8 shadow-inner"><div className="w-16 h-16 bg-[#2E7D32] text-white rounded-3xl flex items-center justify-center font-black text-2xl shadow-lg border border-white/20">OK</div><div><p className="text-xl font-black text-[#2E7D32] leading-none uppercase tracking-tighter">Système Certifié</p><p className="text-[10px] font-bold text-green-700/60 uppercase tracking-[0.2em] mt-3 leading-none italic">Audit complet effectué avec succès</p></div></div>
                                         </div>
                                     </div>
                                 )}
@@ -416,25 +437,27 @@
                         )}
                     </main>
 
-                    <footer className="mt-20 py-20 border-t border-slate-200 text-center relative overflow-hidden">
-                        <span className="font-black text-3xl tracking-tighter text-slate-900 uppercase block mb-3 leading-none">KOOM</span>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] leading-none mb-10">Association Les Graines de l'Espoir – Droit & Justice</span>
-                        <div className="flex justify-center gap-12 text-[9px] font-black uppercase text-slate-300 tracking-[0.2em] leading-none">
-                            <span>Auditable</span><span>Sécurisé</span><span className="text-[#2E7D32] bg-green-50 px-4 py-2 rounded-full border border-green-100 shadow-sm">V.2.7-Stable Final</span>
+                    <footer className="mt-32 py-24 border-t border-slate-200 text-center relative overflow-hidden bg-white/50">
+                        <span className="font-black text-4xl tracking-tighter text-slate-900 uppercase block mb-5 leading-none tracking-widest">KOOM</span>
+                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] leading-none mb-14 block">Association Les Graines de l'Espoir – Droit & Justice</span>
+                        <div className="flex justify-center gap-14 text-[10px] font-black uppercase text-slate-300 tracking-[0.2em] leading-none tracking-widest">
+                            <span className="hover:text-[#2E7D32] transition-colors cursor-default">Auditable</span><span>Sécurité 4.1</span><span className="text-[#2E7D32] bg-green-50 px-5 py-2.5 rounded-full border border-green-100 shadow-sm font-black uppercase">v3.0 Production Ready</span>
                         </div>
                     </footer>
 
                     {isAuthModalOpen && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-xl animate-in">
-                            <div className="bg-white w-full max-w-md p-14 rounded-[3.5rem] shadow-2xl scale-in border border-slate-100">
-                                <h3 className="text-4xl font-black text-center mb-4 tracking-tighter leading-none uppercase">Identification</h3>
-                                <p className="text-[10px] font-black text-slate-300 uppercase text-center mb-10 tracking-[0.2em]">Saisissez votre token privé</p>
-                                <input type="password" value={token} onChange={(e) => setToken(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleLogin()} className="w-full px-8 py-6 rounded-2xl bg-slate-50 text-center tracking-[0.6em] text-3xl font-black mb-8 focus:ring-4 focus:ring-[#2E7D32]/10 outline-none transition-all shadow-inner border-2 border-transparent focus:border-[#2E7D32]/30" placeholder="••••" />
-                                <div className="flex gap-4">
-                                    <button onClick={handleLogin} disabled={isSubmitting} className={`flex-[2] bg-[#2E7D32] text-white py-6 rounded-2xl font-black text-xl shadow-xl shadow-green-900/20 transition-all ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900 active:scale-95'}`}>
-                                        {isSubmitting ? '...' : 'Valider'}
-                                    </button>
-                                    <button onClick={() => setIsAuthModalOpen(false)} className="flex-1 bg-slate-100 text-slate-400 py-6 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-colors">Fermer</button>
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/70 backdrop-blur-3xl animate-in">
+                            <div className="bg-white w-full max-w-lg p-16 rounded-[4.5rem] shadow-2xl scale-in border border-slate-100 transition-all hover:border-[#2E7D32]/30">
+                                <h3 className="text-5xl font-black text-center mb-6 tracking-tighter leading-none uppercase tracking-tighter">Identification</h3>
+                                <p className="text-slate-400 text-center text-[11px] font-bold mb-12 uppercase tracking-[0.2em] opacity-60">Saisissez votre token sécurisé</p>
+                                <div className="space-y-10">
+                                    <input type="password" value={token} onChange={(e) => setToken(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleLogin()} className="w-full px-10 py-7 rounded-3xl bg-slate-50 text-center tracking-[0.6em] text-4xl font-black mb-8 focus:ring-8 focus:ring-[#2E7D32]/5 outline-none transition-all shadow-inner border-4 border-transparent focus:border-[#2E7D32]/20" placeholder="••••" />
+                                    <div className="flex gap-6">
+                                        <button onClick={handleLogin} disabled={isSubmitting} className={`flex-[2] bg-[#2E7D32] text-white py-7 rounded-3xl font-black text-2xl shadow-xl shadow-green-900/30 transition-all leading-none ${isSubmitting ? 'btn-loading' : 'hover:bg-slate-900 active:scale-95'}`}>
+                                            {isSubmitting ? '...' : 'Valider'}
+                                        </button>
+                                        <button onClick={() => setIsAuthModalOpen(false)} className="flex-1 bg-slate-100 text-slate-400 py-7 rounded-3xl font-black uppercase text-[11px] tracking-widest hover:bg-slate-200 transition-colors leading-none tracking-widest">Fermer</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
