@@ -30,35 +30,29 @@
       from { opacity: 0; transform: translateY(8px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    /* Style pour remplacer l'alert navigateur par quelque chose de plus propre */
-    #message-box {
-        display: none;
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 9999;
-        animation: fadeUp 0.3s ease;
-    }
   </style>
 </head>
 
 <body class="min-h-screen bg-slate-50 text-slate-900 selection:bg-emerald-100 text-[12px]">
   <div id="app"></div>
-  <div id="message-box" class="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl font-bold uppercase tracking-widest text-[10px] border border-emerald-500"></div>
 
   <!-- SCRIPT PRINCIPAL -->
   <script>
+    /* Le code JS commence au BLOC 2 */
+
 /* =============================================================================
-   KOOM — REPRODUCTION INTÉGRALE
-   Bloc : configuration + constantes + données + état global
+   KOOM — REPRODUCTION INTÉGRALE EN HTML/JS STATIQUE (sans React)
+   Bloc 2 : configuration + constantes + données + état global
 ============================================================================= */
 
+// --- CONFIGURATION TECHNIQUE ---
 const API_URL = "https://script.google.com/macros/s/AKfycbzZyTFTBEFKx4RX7qQObKGiZmmbgPB9NT_7ZQjJUh3AhXGoSGDU_2dtZZeacIUjT9zMFQ/exec";
 const CR_FORM_BASE = "https://docs.google.com/forms/d/e/1FAIpQLSdUtRDVw9x2rKQ7qLNikLqoajvHhcnd6aCNF87hLqn_oBwcZw/viewform?usp=pp_url&entry.1178799885=";
 const TIMEOUT_BYPASS = 4000;
 
 const ASSO_NAME = "Les Graines de l'Espoir - Droit et justice";
 
+// Données secours (mode offline / timeout)
 const MOCK_DATA = {
   missions: [
     {
@@ -92,42 +86,59 @@ const SECTEURS = [
 
 const MISSION_TYPES = ["Commissariat", "Avocat", "Tribunal", "Social", "Autre"];
 
+// --- ETAT GLOBAL (équivalent useState) ---
 const state = {
-  view: "hub", 
+  // routing interne
+  view: "hub", // hub | partner | volunteer | coord
   loading: true,
   error: null,
-  user: null,       
-  authRole: null,   
+
+  // auth
+  user: null,       // { name, token, role, secteur }
+  authRole: null,   // "BENE" | "COORD"
   isAuthModalOpen: false,
+
+  // data
   missions: [],
-  selectedSlots: new Set(), 
-  selectedMission: null,    
-  coordTab: "journal",      
+  selectedSlots: new Set(), // planning hebdo bénévoles
+  selectedMission: null,    // mission modal coord
+  coordTab: "journal",      // journal | planning | archives | audit
+
+  // UI refresh & dates
   uiKey: 0,
   volunteerCurrentDate: new Date(2026, 0, 1),
   calendarBaseDate: new Date(2026, 0, 1),
+
+  // partenaire
   partnerSubmitted: false,
+
+  // audit logs
   systemLogs: [
     { time: "08:00:01", event: "Trigger Automatique : Nettoyage", status: "SUCCESS", type: "system" },
     { time: "08:00:05", event: "Test : Intégrité API", status: "OK", type: "test" },
     { time: "09:00:00", event: "Mail : Rappel J-1 envoyé", status: "SENT", type: "mail" },
     { time: "10:00:00", event: "Test : Latence Cloud", status: "240ms", type: "test" }
-  ]
+  ],
+
+  // disponibilités dynamiques bénévoles (matrice Jour|Heure -> [noms])
+  availabilityMatrix: {},
+  availabilityLastSync: null,
+  coordPollingTimer: null
 };
 
+
+// --- DOM ROOT ---
 const $app = document.getElementById("app");
 
 /* =============================================================================
-   FONCTIONS UTILITAIRES
+   BLOC 3 — Fonctions utilitaires (helpers)
+   - sécurité affichage
+   - normalisation missions
+   - fetch avec retry
+   - gestion des dates (planning hebdo / calendrier)
 ============================================================================= */
 
-function showMessage(msg) {
-    const box = document.getElementById('message-box');
-    box.innerText = msg;
-    box.style.display = 'block';
-    setTimeout(() => { box.style.display = 'none'; }, 3000);
-}
-
+// --- Sécurité affichage ---
 function escapeHtml(str = "") {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -141,6 +152,7 @@ function upperTrim(val) {
   return String(val ?? "").trim().toUpperCase();
 }
 
+// --- Normalisation mission (STRICTEMENT identique à React) ---
 function normalizeMission(m) {
   const mm = { ...m };
   mm.code = m["Code mission"] || m.CODE || m.code || m.id;
@@ -157,6 +169,7 @@ function normalizeMission(m) {
   return mm;
 }
 
+// --- Fetch robuste avec retry (identique logique React) ---
 async function fetchWithRetry(url, options = {}, retries = 2, backoff = 1000) {
   try {
     const response = await fetch(url, { ...options, mode: "cors", redirect: "follow" });
@@ -176,6 +189,7 @@ async function fetchWithRetry(url, options = {}, retries = 2, backoff = 1000) {
   }
 }
 
+// --- Planning hebdomadaire (Lundi → Samedi) ---
 function getWeekRange(date) {
   const curr = new Date(date);
   const day = curr.getDay();
@@ -186,6 +200,7 @@ function getWeekRange(date) {
   return { start: monday, end: saturday };
 }
 
+// --- Navigation interne (équivalent goTo React) ---
 function goTo(nextView) {
   state.error = null;
   state.isAuthModalOpen = false;
@@ -193,12 +208,30 @@ function goTo(nextView) {
   if (nextView !== "coord") state.coordTab = "journal";
   if (nextView !== "volunteer") state.selectedSlots = new Set();
   state.view = nextView;
+  if (nextView === "coord") startCoordPolling();
+  else stopCoordPolling();
+
   state.uiKey = `${nextView}-${Date.now()}`;
   render();
 }
+// --- Helpers dates & clés ---
+function pad2(n){ return String(n).padStart(2,"0"); }
+function toISODate(d){
+  const x = new Date(d);
+  return `${x.getFullYear()}-${pad2(x.getMonth()+1)}-${pad2(x.getDate())}`;
+}
+function formatFR(d){
+  return new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" });
+}
+function slotKey(dayLabel, hour){ // "Lundi|08:00"
+  return `${dayLabel}|${hour}`;
+}
 
 /* =============================================================================
-   COMPOSANTS UI
+   BLOC 4 — Composants UI globaux
+   - Loader
+   - Navbar
+   - Footer
 ============================================================================= */
 
 function LoaderHTML() {
@@ -224,7 +257,10 @@ function NavbarHTML() {
           <p class="text-[6px] text-emerald-600 uppercase font-black tracking-widest">${escapeHtml(ASSO_NAME)}</p>
         </div>
       </div>
-      ${user ? `
+
+      ${
+        user
+          ? `
             <div class="flex items-center gap-4">
               <div class="text-right leading-none">
                 <p class="text-[10px] font-black text-slate-900 uppercase">${escapeHtml(user.name)}</p>
@@ -236,7 +272,9 @@ function NavbarHTML() {
                 <i data-lucide="log-out" style="width:16px;height:16px;"></i>
               </button>
             </div>
-          ` : `<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest opacity-40">v4.8 Stable • 2026</div>`}
+          `
+          : `<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest opacity-40">v4.8 Stable • 2026</div>`
+      }
     </nav>
   `;
 }
@@ -249,6 +287,9 @@ function FooterHTML() {
     </footer>
   `;
 }
+/* =============================================================================
+   BLOC 5 — Hub + HubCard + AuthModal
+============================================================================= */
 
 function HubCardHTML({ icon, title, label, isDark, color, action }) {
   return `
@@ -268,12 +309,18 @@ function HubHTML() {
     <div class="py-6 text-center animate-in">
       <h1 class="text-6xl font-black text-slate-900 mb-2 tracking-tighter uppercase">KOOM</h1>
       <p class="text-slate-400 font-bold uppercase tracking-widest text-[9px] mb-12">Gestion automatisée des missions terrain</p>
+
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         ${HubCardHTML({ icon: "plus-circle", title: "Partenaires", label: "Dépôt Mission", action: "partner", color: "bg-blue-50 text-blue-600", isDark: false })}
         ${HubCardHTML({ icon: "users", title: "Bénévoles", label: "Planning", action: "auth", color: "bg-emerald-50 text-emerald-600", isDark: false })}
         ${HubCardHTML({ icon: "shield-check", title: "Coordination", label: "Pilotage", action: "auth", color: "bg-slate-900 text-white", isDark: true })}
       </div>
-      ${state.error ? `<div class="mt-8 max-w-xl mx-auto bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">${escapeHtml(state.error)}</div>` : ``}
+
+      ${
+        state.error
+          ? `<div class="mt-8 max-w-xl mx-auto bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">${escapeHtml(state.error)}</div>`
+          : ``
+      }
     </div>
   `;
 }
@@ -284,20 +331,30 @@ function AuthModalHTML() {
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <div class="bg-white w-full max-w-sm p-10 rounded-[2.5rem] shadow-2xl text-center animate-in">
         <h3 class="text-xl font-black mb-6 uppercase">Identification</h3>
+
         <form id="authForm" class="space-y-4">
           <input id="tokenInput" type="password" required autofocus value=""
             placeholder="••••"
             class="w-full p-4 rounded-2xl bg-slate-50 border-2 border-slate-100 text-center font-mono text-xl focus:border-emerald-600 outline-none" />
+
           <button id="btnAuthSubmit" ${state.loading ? "disabled" : ""} type="submit"
             class="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-900 transition-all text-xs">
             ${state.loading ? "..." : "Valider"}
           </button>
+
           <button id="btnAuthCancel" type="button" class="text-slate-400 text-[10px] font-bold uppercase">Annuler</button>
         </form>
       </div>
     </div>
   `;
 }
+/* =============================================================================
+   BLOC 6 — Module Partenaire (STRICTEMENT reproduit)
+   - Formulaire Nouvelle Mission
+   - Soumission createMission via handleAction (défini plus tard)
+   - Écran succès identique
+   + Sous-composants Field / Dropdown utilisés aussi ailleurs
+============================================================================= */
 
 function FieldHTML({ label, name, type = "text", required = false, pattern, placeholder, value = "" }) {
   const req = required ? "required" : "";
@@ -309,7 +366,9 @@ function FieldHTML({ label, name, type = "text", required = false, pattern, plac
       <input
         name="${escapeHtml(name)}"
         type="${escapeHtml(type)}"
-        ${req} ${pat} ${ph}
+        ${req}
+        ${pat}
+        ${ph}
         value="${escapeHtml(value)}"
         class="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold shadow-inner text-slate-900 text-[11px] placeholder:text-slate-300 transition-all"
       />
@@ -331,6 +390,7 @@ function DropdownHTML({ label, name, options, required = false }) {
         <select
           name="${escapeHtml(name)}"
           ${req}
+          defaultValue=""
           class="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold appearance-none cursor-pointer text-slate-900 text-[11px] shadow-inner transition-all"
         >
           <option value="" disabled selected>Sélectionner...</option>
@@ -359,111 +419,526 @@ function PartnerSuccessHTML() {
 
 function PartnerModuleHTML() {
   if (state.partnerSubmitted) return PartnerSuccessHTML();
+
   return `
     <div class="max-w-3xl mx-auto animate-in">
-      <button id="btnBackHubFromPartner" class="mb-6 text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors">
+      <button id="btnBackHubFromPartner"
+        class="mb-6 text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors">
         <i data-lucide="chevron-left" style="width:14px;height:14px;"></i> Retour Hub
       </button>
+
       <div class="bg-white p-10 md:p-14 rounded-[3rem] shadow-2xl border border-slate-100">
-        <h2 class="text-4xl font-black mb-10 text-slate-900 tracking-tighter uppercase underline decoration-emerald-500 decoration-4 underline-offset-8">Nouvelle Mission</h2>
+        <h2 class="text-4xl font-black mb-10 text-slate-900 tracking-tighter uppercase underline decoration-emerald-500 decoration-4 underline-offset-8">
+          Nouvelle Mission
+        </h2>
+
         <form id="partnerForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div class="md:col-span-2">${FieldHTML({ label: "Structure / Organisme Nom Complet *", name: "structure", required: true })}</div>
+          <div class="md:col-span-2">
+            ${FieldHTML({ label: "Structure / Organisme Nom Complet *", name: "structure", required: true })}
+          </div>
+
           ${FieldHTML({ label: "Référence dossier interne *", name: "refDossier", required: true })}
           ${FieldHTML({ label: "Email de contact (Accusé) *", name: "emailContact", type: "email", required: true })}
-          ${FieldHTML({ label: "Numéro de téléphone direct *", name: "phone", type: "tel", required: true, pattern: "[0-9]{10}", placeholder: "0600000000" })}
+
+          ${FieldHTML({
+            label: "Numéro de téléphone direct *",
+            name: "phone",
+            type: "tel",
+            required: true,
+            pattern: "[0-9]{10}",
+            placeholder: "0600000000"
+          })}
+
           ${DropdownHTML({ label: "Type de mission *", name: "typeMission", options: MISSION_TYPES, required: true })}
-          <div class="md:col-span-2">${DropdownHTML({ label: "Secteur de Toulouse (Obligatoire) *", name: "secteur", options: SECTEURS.map(s => ({ id: s.value, label: s.label })), required: true })}</div>
+
+          <div class="md:col-span-2">
+            ${DropdownHTML({
+              label: "Secteur de Toulouse (Obligatoire) *",
+              name: "secteur",
+              options: SECTEURS.map(s => ({ id: s.value, label: s.label })),
+              required: true
+            })}
+          </div>
+
           ${FieldHTML({ label: "Date du rendez-vous *", name: "date", type: "date", required: true })}
           ${FieldHTML({ label: "Heure du rendez-vous *", name: "heure", type: "time", required: true })}
-          <div class="md:col-span-2">${FieldHTML({ label: "Lieu exact (Adresse complète) *", name: "lieu", required: true })}</div>
+
           <div class="md:col-span-2">
-            <label class="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-2 tracking-widest">Commentaires / Précisions</label>
-            <textarea name="commentaires" class="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold text-slate-900 h-24 resize-none shadow-inner" placeholder="Ex: Besoin traducteur, étage, code d'entrée..."></textarea>
+            ${FieldHTML({ label: "Lieu exact (Adresse complète) *", name: "lieu", required: true })}
           </div>
+
+          <div class="md:col-span-2">
+            <label class="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-2 tracking-widest">
+              Commentaires / Précisions
+            </label>
+            <textarea
+              name="commentaires"
+              class="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold text-slate-900 h-24 resize-none shadow-inner"
+              placeholder="Ex: Besoin traducteur, étage, code d'entrée..."
+            ></textarea>
+          </div>
+
           <div class="md:col-span-2 py-4">
-            <button type="submit" class="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-emerald-700 transition-all text-sm">Transmettre le dossier</button>
+            <button type="submit"
+              class="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-emerald-700 transition-all text-sm">
+              Transmettre le dossier
+            </button>
           </div>
         </form>
       </div>
     </div>
   `;
 }
+/* =============================================================================
+   BLOC 7 — VolunteerDashboard (STRICTEMENT reproduit)
+   - Bandeau “Bonjour, {name}”
+   - Select zone d’intervention
+   - Planning hebdomadaire (Lun→Sam) 08:00 → 19:00 (12 créneaux) + toggle
+   - Bouton Enregistrer -> action savePlanning
+   - Liste missions (VALIDÉ ou mission du bénévole) hors archivées
+   - Boutons M'ENGAGER, RAPPORT CR, désistement
+============================================================================= */
 
 function VolunteerDashboardHTML() {
   const user = state.user;
   const missions = state.missions || [];
-  const range = getWeekRange(state.volunteerCurrentDate);
+
+ const range = getWeekRange(state.volunteerCurrentDate); 
+ const rangeLabel = `DU ${formatFR(range.start)} AU ${formatFR(range.end)}`;
+
   const days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 
-  const list = missions.filter(m => (m.statut === "VALIDÉ" || m.volunteerName === user.name) && !upperTrim(m.statut).startsWith("ARCHIV")).sort((a, b) => new Date(a.date) - new Date(b.date));
-  const activeCount = missions.filter(m => m.volunteerName === user.name && !upperTrim(m.statut).startsWith("ARCHIV")).length;
-  const secteurOptions = SECTEURS.map(s => `<option value="${escapeHtml(s.value)}" ${s.value === user.secteur ? "selected" : ""}>${escapeHtml(s.label)}</option>`).join("");
+  const list = missions
+    .filter(m =>
+      (m.statut === "VALIDÉ" || m.volunteerName === user.name) &&
+      !upperTrim(m.statut).startsWith("ARCHIV")
+    )
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
 
+  const activeCount = missions.filter(m =>
+    m.volunteerName === user.name && !upperTrim(m.statut).startsWith("ARCHIV")
+  ).length;
+
+  const secteurOptions = SECTEURS.map(s =>
+    `<option value="${escapeHtml(s.value)}" ${s.value === user.secteur ? "selected" : ""}>${escapeHtml(s.label)}</option>`
+  ).join("");
+
+  // Planning table (12 lignes : 08:00 -> 19:00)
   const planningRows = Array.from({ length: 12 }).map((_, hIdx) => {
     const h = `${String(8 + hIdx).padStart(2, "0")}:00`;
+
     const cells = days.map(d => {
       const k = `${range.start.toDateString()}-${d}-${h}`;
       const isS = state.selectedSlots.has(k);
-      return `<td class="p-0.5"><div data-slot-key="${escapeHtml(k)}" class="h-7 rounded-lg cursor-pointer border transition-all duration-200 ${isS ? "bg-emerald-600 border-emerald-600 shadow-inner" : "bg-slate-50 border-transparent hover:border-emerald-200"}"></div></td>`;
+      return `
+        <td class="p-0.5">
+          <div
+            data-slot-key="${escapeHtml(k)}"
+            class="h-7 rounded-lg cursor-pointer border transition-all duration-200
+              ${isS ? "bg-emerald-600 border-emerald-600 shadow-inner" : "bg-slate-50 border-transparent hover:border-emerald-200"}">
+          </div>
+        </td>
+      `;
     }).join("");
-    return `<tr class="border-t border-slate-50"><td class="p-2 font-black text-slate-300">${escapeHtml(h)}</td>${cells}</tr>`;
+
+    return `
+      <tr class="border-t border-slate-50">
+        <td class="p-2 font-black text-slate-300">${escapeHtml(h)}</td>
+        ${cells}
+      </tr>
+    `;
   }).join("");
 
   const missionCards = list.map(m => {
     const mine = m.volunteerName === user.name;
+
     return `
-      <div class="bg-white p-5 rounded-[1.8rem] shadow-md border-l-[10px] transition-all hover:scale-[1.01] ${mine ? "border-blue-600 shadow-blue-50" : "border-emerald-600 shadow-emerald-50"}">
+      <div
+        class="bg-white p-5 rounded-[1.8rem] shadow-md border-l-[10px] transition-all hover:scale-[1.01]
+          ${mine ? "border-blue-600 shadow-blue-50" : "border-emerald-600 shadow-emerald-50"}"
+      >
         <div class="flex justify-between items-start mb-3">
-          <span class="text-[7px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md ${mine ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"}">${escapeHtml(m.statut)}</span>
+          <span class="text-[7px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md
+            ${mine ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"}">
+            ${escapeHtml(m.statut)}
+          </span>
           <span class="text-[9px] font-black text-slate-400">${escapeHtml(m.heure)}</span>
         </div>
+
         <h4 class="text-md font-black mb-1 uppercase tracking-tighter leading-tight text-left">${escapeHtml(m.structure)}</h4>
-        <p class="text-emerald-600 font-black text-[8px] mb-4 uppercase tracking-widest text-left">${escapeHtml(m.typeMission)} • ${escapeHtml(m.secteur)}</p>
-        ${!mine ? `<button data-take-mission="${escapeHtml(m.code)}" class="w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg hover:bg-emerald-700 transition-all">M'ENGAGER</button>` : `
+        <p class="text-emerald-600 font-black text-[8px] mb-4 uppercase tracking-widest text-left">
+          ${escapeHtml(m.typeMission)} • ${escapeHtml(m.secteur)}
+        </p>
+
+        ${
+          !mine
+            ? `
+              <button
+                data-take-mission="${escapeHtml(m.code)}"
+                class="w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg hover:bg-emerald-700 transition-all">
+                M'ENGAGER
+              </button>
+            `
+            : `
               <div class="flex gap-2">
-                <a href="${CR_FORM_BASE}${encodeURIComponent(m.code)}" target="_blank" class="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase text-center flex items-center justify-center tracking-widest shadow-md hover:bg-emerald-700 transition-all">RAPPORT CR</a>
-                <button data-cancel-mission="${escapeHtml(m.code)}" class="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all shadow-sm flex items-center justify-center"><i data-lucide="x-circle" style="width:16px;height:16px;"></i></button>
-              </div>`}
-      </div>`;
+                <a
+                  href="${CR_FORM_BASE}${encodeURIComponent(m.code)}"
+                  target="_blank"
+                  class="flex-1 py-3 bg-emerald-600 text-white rounded-2xl font-black text-[9px] uppercase text-center flex items-center justify-center tracking-widest shadow-md hover:bg-emerald-700 transition-all">
+                  RAPPORT CR
+                </a>
+                <button
+                  data-cancel-mission="${escapeHtml(m.code)}"
+                  class="p-3 bg-red-50 text-red-600 rounded-2xl hover:bg-red-100 transition-all shadow-sm flex items-center justify-center">
+                  <i data-lucide="x-circle" style="width:16px;height:16px;"></i>
+                </button>
+              </div>
+            `
+        }
+      </div>
+    `;
   }).join("");
 
   return `
     <div class="space-y-4 animate-in">
+
       <div class="bg-emerald-600 p-5 rounded-[1.5rem] text-white shadow-lg flex justify-between items-center relative overflow-hidden">
         <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-        <div class="relative z-10 text-left">
-          <h2 class="text-lg font-black uppercase leading-tight">Bonjour, ${escapeHtml(user.name)}</h2>
-          <p class="opacity-80 font-bold text-[8px] tracking-widest uppercase mt-0.5">Session Relais d'Espoir • ${escapeHtml(user.secteur)}</p>
+
+        <div class="relative z-10">
+          <h2 class="text-lg font-black uppercase leading-tight text-left">Bonjour, ${escapeHtml(user.name)}</h2>
+          <p class="opacity-80 font-bold text-[8px] tracking-[0.2em] uppercase mt-0.5 tracking-widest text-left">
+            Session Relais d'Espoir • ${escapeHtml(user.secteur)}
+          </p>
         </div>
+
         <div class="relative z-10 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl text-center border border-white/20 min-w-[80px]">
           <p class="text-[7px] font-black uppercase opacity-60">Actives</p>
           <p class="text-xl font-black leading-none">${activeCount}</p>
         </div>
       </div>
-      <div class="bg-white p-4 rounded-xl border border-emerald-50 flex flex-col gap-2 shadow-sm text-left">
-        <label class="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest">Ma zone d'intervention active</label>
-        <select id="volunteerSecteurSelect" class="w-full p-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold text-[10px] uppercase outline-none focus:ring-2 focus:ring-emerald-500/20">${secteurOptions}</select>
-      </div>
-      <div class="bg-white p-5 rounded-[1.5rem] shadow-xl border border-emerald-50 text-left">
-        <div class="flex justify-between items-center mb-5">
-          <h3 class="text-xs font-black uppercase tracking-widest text-emerald-900 leading-none">Planning Hebdomadaire</h3>
-          <button id="btnSavePlanning" class="px-5 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2"><i data-lucide="save" style="width:14px;height:14px;"></i> Enregistrer</button>
-        </div>
-        <div class="overflow-x-auto no-scrollbar"><table class="w-full text-center text-[9px]"><thead><tr><th class="p-2"></th>${days.map(d => `<th class="p-2 text-slate-400 font-black uppercase tracking-widest">${escapeHtml(d.slice(0,3))}</th>`).join("")}</tr></thead><tbody>${planningRows}</tbody></table></div>
-      </div>
-      <h3 class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mt-8 text-left">Dossiers Disponibles & Engagements</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${missionCards || `<div class="col-span-full py-12 text-center bg-white rounded-[2rem] border border-dashed border-slate-200"><p class="text-slate-300 font-black uppercase tracking-[0.3em] text-[10px]">Aucune mission disponible pour le moment</p></div>`}</div>
-    </div>`;
-}
 
-function StatCardHTML({ label, value, color }) {
-  return `
-    <div class="bg-white p-4 rounded-2xl shadow-lg border border-slate-50 text-center transition-transform hover:scale-105 group">
-      <p class="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1.5 group-hover:text-emerald-400 transition-colors leading-none">${escapeHtml(label)}</p>
-      <p class="text-2xl font-black ${escapeHtml(color)} tracking-tighter leading-none">${value}</p>
+      <div class="bg-white p-4 rounded-xl border border-emerald-50 flex flex-col gap-2 shadow-sm">
+        <label class="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest text-left">Ma zone d'intervention active</label>
+        <select id="volunteerSecteurSelect"
+          class="w-full p-2.5 bg-slate-50 border border-slate-100 rounded-xl font-bold text-[10px] uppercase outline-none focus:ring-2 focus:ring-emerald-500/20">
+          ${secteurOptions}
+        </select>
+      </div>
+
+      <div class="bg-white p-5 rounded-[1.5rem] shadow-xl border border-emerald-50">
+        <div class="flex justify-between items-center mb-5">
+          <div class="flex flex-col gap-1">
+  <h3 class="text-xs font-black uppercase tracking-widest text-emerald-900 leading-none">Planning Hebdomadaire</h3>
+  <div class="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-700 px-3 py-1 rounded-xl w-fit">
+    <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
+    <span class="text-[9px] font-black uppercase tracking-widest">${escapeHtml(rangeLabel)}</span>
+  </div>
+</div>
+
+
+          <button id="btnSavePlanning"
+            class="px-5 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2">
+            <i data-lucide="save" style="width:14px;height:14px;"></i> Enregistrer
+          </button>
+        </div>
+
+        <div class="overflow-x-auto no-scrollbar">
+          <table class="w-full text-center text-[9px]">
+            <thead>
+              <tr>
+                <th class="p-2"></th>
+                ${days.map(d => `<th class="p-2 text-slate-400 font-black uppercase tracking-widest">${escapeHtml(d.slice(0,3))}</th>`).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${planningRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h3 class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mt-8 text-left">Dossiers Disponibles & Engagements</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        ${
+          missionCards ||
+          `<div class="col-span-full py-12 text-center bg-white rounded-[2rem] border border-dashed border-slate-200">
+            <p class="text-slate-300 font-black uppercase tracking-[0.3em] text-[10px]">Aucune mission disponible pour le moment</p>
+          </div>`
+        }
+      </div>
+
     </div>
   `;
 }
+/* =============================================================================
+   BLOC 8 — CoordinationDashboard (STRUCTURE STRICTE)
+   - Stats (Attente, Validées, En cours, Archivées) -> utilise StatCardHTML (BLOC 9)
+   - Tabs: journal / planning / archives / audit -> utilise TabButtonHTML (BLOC 9)
+   - Vues:
+     * journal : table dossiers non archivés + bouton edit (ouvre modale)
+     * archives : table archives + bouton détails (ouvre modale)
+     * planning : calendrier mensuel (grille 7 colonnes) avec missions du jour
+   NOTE: la modale mission + audit seront ajoutés au BLOC 9
+============================================================================= */
+
+function CoordinationDashboardHTML() {
+  const missions = state.missions || [];
+
+  const attente = missions.filter(m => m.statut === "ATTENTE").length;
+  const validees = missions.filter(m => m.statut === "VALIDÉ").length;
+  const encours = missions.filter(m => ["POURVUE", "EN COURS"].includes(m.statut)).length;
+  const archivees = missions.filter(m => upperTrim(m.statut).startsWith("ARCHIV")).length;
+
+  // --- Planning mensuel (strictement inspiré de ton React) ---
+  const d = state.calendarBaseDate;
+  const monthName = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const firstDay = (new Date(d.getFullYear(), d.getMonth(), 1).getDay() + 6) % 7;
+
+  const calendarEmpty = Array.from({ length: firstDay }).map((_, i) =>
+    `<div class="bg-white min-h-[75px]" data-cal-empty="${i}"></div>`
+  ).join("");
+
+  const calendarDays = Array.from({ length: daysInMonth }).map((_, i) => {
+  const day = i + 1;
+  const cellDate = new Date(d.getFullYear(), d.getMonth(), day);
+
+  const missionsDuJour = missions.filter(m => {
+    const md = new Date(m.date);
+    return (
+      md.getDate() === day &&
+      md.getMonth() === d.getMonth() &&
+      md.getFullYear() === d.getFullYear()
+    );
+  });
+
+  const items = missionsDuJour.map(m => `
+    <div class="bg-emerald-600 text-white p-1 rounded-md text-[6px] truncate font-bold uppercase shadow-sm">
+      ${escapeHtml(m.heure)} ${escapeHtml(m.structure)}
+    </div>
+  `).join("");
+
+  const weekdayFR = cellDate.toLocaleDateString("fr-FR", { weekday: "long" });
+  const weekdayCap = weekdayFR.charAt(0).toUpperCase() + weekdayFR.slice(1);
+
+  const availabilityBadges = Array.from({ length: 12 }).map((_, hIdx) => {
+    const hour = `${String(8 + hIdx).padStart(2, "0")}:00`;
+    const k = `${weekdayCap}|${hour}`;
+    const names = state.availabilityMatrix?.[k] || [];
+    if (!names.length) return ``;
+
+    return `
+      <div class="bg-slate-900/90 text-white px-1.5 py-0.5 rounded-md text-[6px] font-black uppercase tracking-widest inline-flex items-center gap-1">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        ${escapeHtml(hour)} • ${names.length}
+      </div>
+    `;
+  }).filter(Boolean).slice(0, 4).join("");
+
+  return `
+    <div class="bg-white min-h-[75px] p-2 hover:bg-slate-50 transition-colors border-t border-l border-slate-50 group">
+      <div class="flex justify-between items-start">
+        <span class="text-[10px] font-black text-slate-200 group-hover:text-emerald-200 transition-colors">${day}</span>
+        ${
+          state.availabilityLastSync
+            ? `<span class="text-[6px] font-black text-slate-200/60 uppercase tracking-widest">sync</span>`
+            : ``
+        }
+      </div>
+
+      <div class="mt-1 space-y-0.5">
+        ${items}
+      </div>
+
+      ${
+        availabilityBadges
+          ? `<div class="mt-1.5 flex flex-col gap-0.5">${availabilityBadges}</div>`
+          : ``
+      }
+    </div>
+  `;
+}).join("");
+
+  // --- Journal (non archivés) ---
+  const journalRows = missions
+    .filter(m => !upperTrim(m.statut).startsWith("ARCHIV"))
+    .map(m => `
+      <tr class="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
+        <td class="p-4 font-black">
+          ${escapeHtml(m.date)}<br/>
+          <span class="text-emerald-600 text-[8px] tracking-widest">${escapeHtml(m.heure)}</span>
+        </td>
+
+        <td class="p-4 uppercase leading-tight tracking-tighter">
+          ${escapeHtml(m.structure)}<br/>
+          <span class="text-slate-300 text-[7px] font-black">${escapeHtml(m.typeMission)}</span>
+        </td>
+
+        <td class="p-4">
+          <span class="px-2.5 py-0.5 rounded-md text-[7px] font-black tracking-widest
+            ${m.statut === "ATTENTE" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600 shadow-sm"}">
+            ${escapeHtml(m.statut)}
+          </span>
+        </td>
+
+        <td class="p-4 text-right">
+          <button data-open-mission="${escapeHtml(m.code)}"
+            class="p-2 text-slate-300 hover:text-emerald-600 transition-colors flex items-center justify-center ml-auto">
+            <i data-lucide="edit-3" style="width:16px;height:16px;"></i>
+          </button>
+        </td>
+      </tr>
+    `).join("");
+
+  const journalHTML = `
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in">
+      <table class="w-full text-left text-[10px]">
+        <thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100">
+          <tr>
+            <th class="p-4">RDV / Heure</th>
+            <th class="p-4">Organisme</th>
+            <th class="p-4">Statut</th>
+            <th class="p-4 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="font-bold text-left">
+          ${journalRows}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // --- Archives ---
+  const archivesRows = missions
+    .filter(m => upperTrim(m.statut).startsWith("ARCHIV"))
+    .map(m => `
+      <tr class="border-t border-slate-50 opacity-60 grayscale hover:grayscale-0 transition-all text-left">
+        <td class="p-4 font-black">
+          ${escapeHtml(m.date)}<br/>
+          <span class="text-slate-400 text-[8px]">${escapeHtml(m.heure)}</span>
+        </td>
+
+        <td class="p-4 uppercase leading-tight">
+          ${escapeHtml(m.structure)}<br/>
+          <span class="text-slate-300 text-[7px]">${escapeHtml(m.typeMission)}</span>
+        </td>
+
+        <td class="p-4">
+          <span class="px-2.5 py-0.5 rounded-md text-[7px] font-black bg-slate-100 text-slate-500 tracking-widest uppercase">
+            ARCHIVÉ
+          </span>
+        </td>
+
+        <td class="p-4 text-right">
+          <button data-open-mission="${escapeHtml(m.code)}"
+            class="p-2 text-slate-300 hover:text-slate-500 ml-auto flex items-center justify-center">
+            <i data-lucide="search" style="width:16px;height:16px;"></i>
+          </button>
+        </td>
+      </tr>
+    `).join("");
+
+  const archivesHTML = `
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in text-left">
+      <table class="w-full text-left text-[10px]">
+        <thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100">
+          <tr>
+            <th class="p-4">Date Mission</th>
+            <th class="p-4">Organisme</th>
+            <th class="p-4">Statut</th>
+            <th class="p-4 text-right">Détails</th>
+          </tr>
+        </thead>
+        <tbody class="font-bold">
+          ${archivesRows}
+        </tbody>
+      </table>
+
+      ${
+        missions.filter(m => upperTrim(m.statut).startsWith("ARCHIV")).length === 0
+          ? `<div class="p-20 text-center text-slate-300 font-black uppercase tracking-[0.4em]">Aucune archive disponible</div>`
+          : ``
+      }
+    </div>
+  `;
+
+  // --- Planning ---
+  const planningHTML = `
+    <div class="bg-white rounded-[2rem] shadow-2xl border border-emerald-50 overflow-hidden animate-in text-left">
+      <div class="flex justify-between items-center p-6 border-b border-slate-50 bg-slate-50/30">
+        <div class="flex flex-col">
+          <h3 class="text-xl font-black uppercase tracking-tighter leading-none">${escapeHtml(monthName)}</h3>
+          <p class="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">Secteur Coordination — Date_Demande</p>
+        </div>
+
+        <div class="flex gap-2">
+          <button id="btnCalPrev"
+            class="p-2 hover:bg-white rounded-xl shadow-sm transition-all border border-slate-100">
+            <i data-lucide="chevron-left" style="width:16px;height:16px;"></i>
+          </button>
+
+          <button id="btnCalNext"
+            class="p-2 hover:bg-white rounded-xl shadow-sm transition-all border border-slate-100">
+            <i data-lucide="chevron-right" style="width:16px;height:16px;"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-7 gap-px bg-slate-100 border-b border-slate-100">
+        ${["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map(x =>
+          `<div class="bg-slate-50 p-3 text-center text-[8px] font-black text-slate-400 uppercase tracking-widest">${x}</div>`
+        ).join("")}
+
+        ${calendarEmpty}
+        ${calendarDays}
+      </div>
+    </div>
+  `;
+
+  // --- Tabs header ---
+  const tabsHTML = `
+    <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+      ${TabButtonHTML({ active: state.coordTab === "journal", tab: "journal", label: "Dossiers", icon: "clipboard-list" })}
+      ${TabButtonHTML({ active: state.coordTab === "planning", tab: "planning", label: "Calendrier", icon: "calendar" })}
+      ${TabButtonHTML({ active: state.coordTab === "archives", tab: "archives", label: "Archives", icon: "archive" })}
+      ${TabButtonHTML({ active: state.coordTab === "audit", tab: "audit", label: "Audit Flux v4.8", icon: "activity" })}
+    </div>
+  `;
+
+  let bodyHTML = ``;
+  if (state.coordTab === "journal") bodyHTML = journalHTML;
+  if (state.coordTab === "planning") bodyHTML = planningHTML;
+  if (state.coordTab === "archives") bodyHTML = archivesHTML;
+  if (state.coordTab === "audit") bodyHTML = `<!-- Audit ajouté au BLOC 9 -->`;
+
+  return `
+    <div class="space-y-4 animate-in text-[11px]">
+      <div class="grid grid-cols-4 gap-3">
+        ${StatCardHTML({ label: "Attente", value: attente, color: "text-amber-600" })}
+        ${StatCardHTML({ label: "Validées", value: validees, color: "text-emerald-600" })}
+        ${StatCardHTML({ label: "En Cours", value: encours, color: "text-blue-600" })}
+        ${StatCardHTML({ label: "Archivées", value: archivees, color: "text-slate-400" })}
+      </div>
+
+      ${tabsHTML}
+      ${bodyHTML}
+
+      <!-- Modale mission ajoutée au BLOC 9 -->
+    </div>
+  `;
+}
+/* =============================================================================
+   BLOC 9 — Sous-composants requis par Coordination
+   - TabButtonHTML
+   - StatCardHTML
+   - DetailItemHTML
+   - AuditMiniCardHTML
+   - AuditViewHTML
+   - MissionModalHTML (Valider / Archiver + close)
+   IMPORTANT: CoordinationDashboardHTML du BLOC 8 appelle ces fonctions
+============================================================================= */
 
 function TabButtonHTML({ active, tab, label, icon }) {
   return `
@@ -475,11 +950,20 @@ function TabButtonHTML({ active, tab, label, icon }) {
   `;
 }
 
+function StatCardHTML({ label, value, color }) {
+  return `
+    <div class="bg-white p-4 rounded-2xl shadow-lg border border-slate-50 text-center transition-transform hover:scale-105 group">
+      <p class="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1.5 group-hover:text-emerald-400 transition-colors leading-none">${escapeHtml(label)}</p>
+      <p class="text-2xl font-black ${escapeHtml(color)} tracking-tighter leading-none">${value}</p>
+    </div>
+  `;
+}
+
 function DetailItemHTML({ label, value }) {
   return `
     <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100 overflow-hidden shadow-sm text-left">
       <label class="text-[6px] font-black text-slate-300 uppercase block mb-0.5 tracking-widest leading-none">${escapeHtml(label)}</label>
-      <p class="font-black text-[10px] truncate uppercase leading-tight text-slate-700">${escapeHtml(value || "---")}</p>
+      <p class="font-black text-[10px] truncate uppercase leading-tight text-slate-700 text-left">${escapeHtml(value || "---")}</p>
     </div>
   `;
 }
@@ -500,14 +984,16 @@ function AuditViewHTML() {
   return `
     <div class="bg-white rounded-[2rem] shadow-xl p-8 border border-slate-100 animate-in text-left">
       <h3 class="text-sm font-black mb-6 uppercase tracking-widest text-emerald-900 leading-none">Journal d'Audit & Triggers v4.8</h3>
+
       <div class="grid grid-cols-3 gap-3 mb-8">
         ${AuditMiniCardHTML({ label: "API Connect", status: "PASS", color: "text-emerald-500", icon: "terminal" })}
         ${AuditMiniCardHTML({ label: "Automatismes", status: "ACTIF", color: "text-blue-500", icon: "refresh-cw" })}
         ${AuditMiniCardHTML({ label: "Flux Mails", status: "AUTO-ON", color: "text-amber-500", icon: "mail" })}
       </div>
+
       <div class="space-y-1.5 max-h-[300px] overflow-y-auto no-scrollbar pr-2">
         ${state.systemLogs.map((log) => `
-          <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-[9px] font-bold border-l-4 border-slate-900 shadow-sm transition-all hover:bg-slate-100">
+          <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-[9px] font-bold border-l-4 border-slate-900 shadow-sm transition-all hover:bg-slate-100 text-left">
             <span class="text-slate-400 font-mono tracking-tighter">${escapeHtml(log.time)}</span>
             <span class="flex-1 px-4 truncate uppercase tracking-tighter opacity-70">${escapeHtml(log.event)}</span>
             <span class="text-emerald-600 uppercase tracking-widest">${escapeHtml(log.status)}</span>
@@ -521,188 +1007,467 @@ function AuditViewHTML() {
 function MissionModalHTML() {
   const m = state.selectedMission;
   if (!m) return ``;
+
   const isArchived = upperTrim(m.statut).startsWith("ARCHIV");
+
   return `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md animate-in">
       <div class="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden">
-        <div class="bg-[#1B5E20] p-5 text-white flex justify-between items-center text-left">
-          <div class="overflow-hidden">
+        <div class="bg-[#1B5E20] p-5 text-white flex justify-between items-center">
+          <div class="overflow-hidden text-left">
             <h3 class="text-sm font-black uppercase truncate tracking-tighter leading-tight">${escapeHtml(m.structure)}</h3>
             <p class="text-[7px] font-black opacity-60 uppercase tracking-widest mt-0.5">Réf : ${escapeHtml(m.code)}</p>
           </div>
-          <button id="btnCloseMissionModal" class="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-all shrink-0 ml-4"><i data-lucide="x-circle" style="width:18px;height:18px;"></i></button>
+
+          <button id="btnCloseMissionModal" class="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-all shrink-0 ml-4">
+            <i data-lucide="x-circle" style="width:18px;height:18px;"></i>
+          </button>
         </div>
+
         <div class="p-6 space-y-4">
-          <div class="grid grid-cols-2 gap-2.5 text-left">${DetailItemHTML({ label: "RDV", value: `${m.date} ${m.heure}` })}${DetailItemHTML({ label: "Lieu_RDV", value: m.lieu })}${DetailItemHTML({ label: "Statut", value: m.statut })}${DetailItemHTML({ label: "Benevole_ID", value: m.volunteerName || "---" })}${m.phone ? DetailItemHTML({ label: "Téléphone", value: m.phone }) : ``}${m.refDossier ? DetailItemHTML({ label: "Réf Dossier", value: m.refDossier }) : ``}</div>
-          ${m.commentaires ? `<div class="bg-slate-50 p-3 rounded-xl text-left border border-slate-100 shadow-inner"><label class="text-[6px] font-black text-slate-300 uppercase block mb-1 tracking-widest">Commentaires Terrain</label><p class="text-[9px] font-bold text-slate-600 leading-normal italic text-left">"${escapeHtml(m.commentaires)}"</p></div>` : ``}
-          ${!isArchived ? `<div class="flex gap-2 pt-2"><button id="btnModalValidate" class="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition-all tracking-widest">Valider</button><button id="btnModalArchive" class="flex-1 bg-slate-900 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg hover:bg-red-700 transition-all tracking-widest">Archiver</button></div>` : ``}
+          <div class="grid grid-cols-2 gap-2.5 text-left">
+            ${DetailItemHTML({ label: "RDV", value: `${m.date} ${m.heure}` })}
+            ${DetailItemHTML({ label: "Lieu_RDV", value: m.lieu })}
+            ${DetailItemHTML({ label: "Statut", value: m.statut })}
+            ${DetailItemHTML({ label: "Benevole_ID", value: m.volunteerName || "---" })}
+            ${m.phone ? DetailItemHTML({ label: "Téléphone", value: m.phone }) : ``}
+            ${m.refDossier ? DetailItemHTML({ label: "Réf Dossier", value: m.refDossier }) : ``}
+          </div>
+
+          ${
+            m.commentaires
+              ? `
+                <div class="bg-slate-50 p-3 rounded-xl text-left border border-slate-100 shadow-inner">
+                  <label class="text-[6px] font-black text-slate-300 uppercase block mb-1 tracking-widest">Commentaires Terrain</label>
+                  <p class="text-[9px] font-bold text-slate-600 leading-normal italic text-left">"${escapeHtml(m.commentaires)}"</p>
+                </div>
+              `
+              : ``
+          }
+
+          ${
+            !isArchived
+              ? `
+                <div class="flex gap-2 pt-2">
+                  <button id="btnModalValidate"
+                    class="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-500/30 hover:bg-emerald-700 transition-all tracking-widest">
+                    Valider
+                  </button>
+
+                  <button id="btnModalArchive"
+                    class="flex-1 bg-slate-900 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg hover:bg-red-700 transition-all tracking-widest">
+                    Archiver
+                  </button>
+                </div>
+              `
+              : ``
+          }
         </div>
       </div>
-    </div>`;
+    </div>
+  `;
 }
-
-function CoordinationDashboardHTML() {
-  const missions = state.missions || [];
-  const attente = missions.filter(m => m.statut === "ATTENTE").length;
-  const validees = missions.filter(m => m.statut === "VALIDÉ").length;
-  const encours = missions.filter(m => ["POURVUE", "EN COURS"].includes(m.statut)).length;
-  const archivees = missions.filter(m => upperTrim(m.statut).startsWith("ARCHIV")).length;
-
-  const d = state.calendarBaseDate;
-  const monthName = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  const firstDay = (new Date(d.getFullYear(), d.getMonth(), 1).getDay() + 6) % 7;
-
-  const calendarEmpty = Array.from({ length: firstDay }).map((_, i) => `<div class="bg-white min-h-[75px]" data-cal-empty="${i}"></div>`).join("");
-  const calendarDays = Array.from({ length: daysInMonth }).map((_, i) => {
-    const day = i + 1;
-    const missionsDuJour = missions.filter(m => {
-      const md = new Date(m.date);
-      return md.getDate() === day && md.getMonth() === d.getMonth() && md.getFullYear() === d.getFullYear();
-    });
-    const items = missionsDuJour.map(m => `<div class="bg-emerald-600 text-white p-1 rounded-md text-[6px] truncate font-bold uppercase shadow-sm">${escapeHtml(m.heure)} ${escapeHtml(m.structure)}</div>`).join("");
-    return `<div class="bg-white min-h-[75px] p-2 hover:bg-slate-50 transition-colors border-t border-l border-slate-50 group text-left"><span class="text-[10px] font-black text-slate-200 group-hover:text-emerald-200 transition-colors">${day}</span><div class="mt-1 space-y-0.5">${items}</div></div>`;
-  }).join("");
-
-  const journalRows = missions.filter(m => !upperTrim(m.statut).startsWith("ARCHIV")).map(m => `
-    <tr class="border-t border-slate-50 hover:bg-slate-50/50 transition-colors text-left">
-      <td class="p-4 font-black">${escapeHtml(m.date)}<br/><span class="text-emerald-600 text-[8px] tracking-widest">${escapeHtml(m.heure)}</span></td>
-      <td class="p-4 uppercase leading-tight tracking-tighter">${escapeHtml(m.structure)}<br/><span class="text-slate-300 text-[7px] font-black">${escapeHtml(m.typeMission)}</span></td>
-      <td class="p-4"><span class="px-2.5 py-0.5 rounded-md text-[7px] font-black tracking-widest ${m.statut === "ATTENTE" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600 shadow-sm"}">${escapeHtml(m.statut)}</span></td>
-      <td class="p-4 text-right"><button data-open-mission="${escapeHtml(m.code)}" class="p-2 text-slate-300 hover:text-emerald-600 transition-colors flex items-center justify-center ml-auto"><i data-lucide="edit-3" style="width:16px;height:16px;"></i></button></td>
-    </tr>`).join("");
-
-  const archivesRows = missions.filter(m => upperTrim(m.statut).startsWith("ARCHIV")).map(m => `
-    <tr class="border-t border-slate-50 opacity-60 grayscale hover:grayscale-0 transition-all text-left">
-      <td class="p-4 font-black">${escapeHtml(m.date)}<br/><span class="text-slate-400 text-[8px]">${escapeHtml(m.heure)}</span></td>
-      <td class="p-4 uppercase leading-tight">${escapeHtml(m.structure)}<br/><span class="text-slate-300 text-[7px]">${escapeHtml(m.typeMission)}</span></td>
-      <td class="p-4"><span class="px-2.5 py-0.5 rounded-md text-[7px] font-black bg-slate-100 text-slate-500 tracking-widest uppercase">ARCHIVÉ</span></td>
-      <td class="p-4 text-right"><button data-open-mission="${escapeHtml(m.code)}" class="p-2 text-slate-300 hover:text-slate-500 ml-auto flex items-center justify-center"><i data-lucide="search" style="width:16px;height:16px;"></i></button></td>
-    </tr>`).join("");
-
-  const tabsHTML = `<div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">${TabButtonHTML({ active: state.coordTab === "journal", tab: "journal", label: "Dossiers", icon: "clipboard-list" })}${TabButtonHTML({ active: state.coordTab === "planning", tab: "planning", label: "Calendrier", icon: "calendar" })}${TabButtonHTML({ active: state.coordTab === "archives", tab: "archives", label: "Archives", icon: "archive" })}${TabButtonHTML({ active: state.coordTab === "audit", tab: "audit", label: "Audit Flux v4.8", icon: "activity" })}</div>`;
-
-  let bodyHTML = ``;
-  if (state.coordTab === "journal") bodyHTML = `<div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in"><table class="w-full text-left text-[10px]"><thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100"><tr><th class="p-4">RDV / Heure</th><th class="p-4">Organisme</th><th class="p-4">Statut</th><th class="p-4 text-right">Actions</th></tr></thead><tbody class="font-bold">${journalRows}</tbody></table></div>`;
-  if (state.coordTab === "planning") bodyHTML = `<div class="bg-white rounded-[2rem] shadow-2xl border border-emerald-50 overflow-hidden animate-in text-left"><div class="flex justify-between items-center p-6 border-b border-slate-50 bg-slate-50/30"><div class="flex flex-col"><h3 class="text-xl font-black uppercase tracking-tighter leading-none">${escapeHtml(monthName)}</h3><p class="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">Secteur Coordination</p></div><div class="flex gap-2"><button id="btnCalPrev" class="p-2 hover:bg-white rounded-xl shadow-sm transition-all border border-slate-100"><i data-lucide="chevron-left" style="width:16px;height:16px;"></i></button><button id="btnCalNext" class="p-2 hover:bg-white rounded-xl shadow-sm transition-all border border-slate-100"><i data-lucide="chevron-right" style="width:16px;height:16px;"></i></button></div></div><div class="grid grid-cols-7 gap-px bg-slate-100 border-b border-slate-100">${["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map(x => `<div class="bg-slate-50 p-3 text-center text-[8px] font-black text-slate-400 uppercase tracking-widest">${x}</div>`).join("")}${calendarEmpty}${calendarDays}</div></div>`;
-  if (state.coordTab === "archives") bodyHTML = `<div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in text-left"><table class="w-full text-left text-[10px]"><thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100"><tr><th class="p-4">Date Mission</th><th class="p-4">Organisme</th><th class="p-4">Statut</th><th class="p-4 text-right">Détails</th></tr></thead><tbody class="font-bold">${archivesRows}</tbody></table>${missions.filter(m => upperTrim(m.statut).startsWith("ARCHIV")).length === 0 ? `<div class="p-20 text-center text-slate-300 font-black uppercase tracking-[0.4em]">Aucune archive disponible</div>` : ``}</div>`;
-  if (state.coordTab === "audit") bodyHTML = AuditViewHTML();
-
-  return `
-    <div class="space-y-4 animate-in text-[11px]">
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">${StatCardHTML({ label: "Attente", value: attente, color: "text-amber-600" })}${StatCardHTML({ label: "Validées", value: validees, color: "text-emerald-600" })}${StatCardHTML({ label: "En Cours", value: encours, color: "text-blue-600" })}${StatCardHTML({ label: "Archivées", value: archivees, color: "text-slate-400" })}</div>
-      ${tabsHTML}
-      ${bodyHTML}
-      ${MissionModalHTML()}
-    </div>`;
-}
-
 /* =============================================================================
-   COEUR APPLICATIF
+   BLOC 10 — Cœur applicatif
+   - fetchMissions
+   - handleLogin
+   - handleAction
+   - Render global (Router + main layout)
+   - Bind events (Hub/Auth/Partner/Volunteer/Coord/Modal/Calendar)
+   - Init + Mode secours TIMEOUT_BYPASS
 ============================================================================= */
 
+// --- API: récupérer les missions ---
 async function fetchMissions() {
   try {
-    const res = await fetch(`${API_URL}?action=listMissions`).then(r => r.json());
+    const res = await fetchWithRetry(`${API_URL}?action=listMissions`);
     if (res && res.ok) {
       const list = Array.isArray(res.missions) ? res.missions : (Array.isArray(res) ? res : []);
       state.missions = list.map(normalizeMission);
     }
-  } catch (e) { }
+  } catch (e) {
+    // silencieux : le mode secours gère
+  }
 }
 
+// --- API: récupérer matrice disponibilités bénévoles (Jour|Heure -> [noms]) ---
+async function fetchAvailabilityMatrix() {
+  try {
+    const res = await fetchWithRetry(`${API_URL}?action=getAvailabilityMatrix`);
+    if (res && res.ok && res.matrix) {
+      state.availabilityMatrix = res.matrix || {};
+      state.availabilityLastSync = new Date().toISOString();
+      render();
+    }
+  } catch (e) {
+    // silencieux: on ne bloque pas l'app
+  }
+}
+
+// --- Coordination: polling "temps réel" (léger) ---
+function startCoordPolling() {
+  stopCoordPolling();
+  state.coordPollingTimer = setInterval(() => {
+    if (state.authRole === "COORD" && state.view === "coord" && state.coordTab === "planning") {
+      fetchAvailabilityMatrix();
+    }
+  }, 9000);
+}
+function stopCoordPolling() {
+  if (state.coordPollingTimer) {
+    clearInterval(state.coordPollingTimer);
+    state.coordPollingTimer = null;
+  }
+}
+
+
+// --- Auth: login ---
 async function handleLogin(tokenInput) {
-  state.loading = true; render();
+  state.loading = true;
+  render();
   try {
     const res = await fetchWithRetry(`${API_URL}?action=validateToken&token=${encodeURIComponent(tokenInput)}`);
     if (res && res.ok && res.profile) {
       const rawRole = upperTrim(res.role || res.profile.role || "");
       const role = rawRole.includes("COORD") ? "COORD" : (rawRole.includes("BENE") ? "BENE" : rawRole);
-      state.user = { name: String(res.profile.name || res.profile.nom || "").trim(), token: tokenInput, role: role, secteur: res.profile.secteur || res.profile.sector || "Centre" };
+
+      state.user = {
+        name: String(res.profile.name || res.profile.nom || "").trim(),
+        token: tokenInput,
+        role: role,
+        secteur: res.profile.secteur || res.profile.sector || "Centre"
+      };
       state.authRole = role;
-      if (role === "COORD") goTo("coord"); else if (role === "BENE") goTo("volunteer"); else goTo("hub");
-    } else {
-      showMessage("Token invalide.");
-    }
-  } catch (err) { state.error = "Serveur indisponible."; } finally { state.loading = false; render(); }
+
+      if (role === "COORD") {
+  goTo("coord");
+  fetchAvailabilityMatrix();
 }
 
+      else if (role === "BENE") goTo("volunteer");
+      else goTo("hub");
+    } else {
+      alert("Token invalide.");
+    }
+  } catch (err) {
+    state.error = "Serveur indisponible.";
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+// --- Actions: POST Apps Script ---
 async function handleAction(payload) {
-  state.loading = true; render();
+  state.loading = true;
+  render();
   try {
-    const res = await fetchWithRetry(API_URL, { method: "POST", body: JSON.stringify({ ...payload, token: state.user?.token }) });
+    const res = await fetchWithRetry(API_URL, {
+      method: "POST",
+      body: JSON.stringify({ ...payload, token: state.user?.token })
+    });
+
     if (res && res.ok) {
+      // Mise à jour optimiste robuste (archivage)
       if (payload?.action === "updateStatus" && payload?.status === "ARCHIVÉ" && payload?.code) {
         const pc = String(payload.code).trim();
-        state.missions = state.missions.map(m => (String(m.code || "").trim() === pc) ? { ...m, statut: "ARCHIVÉ" } : m);
+        state.missions = state.missions.map(m => (
+          (String(m.code || "").trim() === pc || String(m.id || "").trim() === pc)
+            ? { ...m, statut: "ARCHIVÉ" }
+            : m
+        ));
       }
+
+      // refresh complet
       await fetchMissions();
-      state.uiKey++; render();
+      state.uiKey = state.uiKey + 1;
+      render();
       return res;
     }
     throw new Error(res?.error || "Refusé");
-  } catch (err) { state.error = "Erreur : " + String(err.message || err); render(); return { success: false }; } finally { state.loading = false; render(); }
+  } catch (err) {
+    state.error = "Erreur : " + String(err.message || err);
+    render();
+    return { success: false };
+  } finally {
+    state.loading = false;
+    render();
+  }
 }
 
-function render() {
-  let mainContent = HubHTML();
-  if (state.view === "partner") mainContent = PartnerModuleHTML();
-  if (state.view === "volunteer" && state.authRole === "BENE") mainContent = VolunteerDashboardHTML();
-  if (state.view === "coord" && state.authRole === "COORD") mainContent = CoordinationDashboardHTML();
+// --- Router / Page body ---
+function MainViewHTML() {
+  if (state.view === "hub") return HubHTML();
+  if (state.view === "partner") return PartnerModuleHTML();
 
-  $app.innerHTML = `
-    <div data-uikey="${state.uiKey}">
+  if (state.view === "volunteer" && state.authRole === "BENE") return VolunteerDashboardHTML();
+
+  if (state.view === "coord" && state.authRole === "COORD") {
+    // Injecte l'audit dans l'onglet audit
+    let base = CoordinationDashboardHTML();
+    if (state.coordTab === "audit") {
+      base = base.replace(`<!-- Audit ajouté au BLOC 9 -->`, AuditViewHTML());
+    }
+    // Injecte la modale mission
+    base = base.replace(`<!-- Modale mission ajoutée au BLOC 9 -->`, MissionModalHTML());
+    return base;
+  }
+
+  // fallback
+  return HubHTML();
+}
+
+// --- Render global ---
+function render() {
+  const html = `
+    <div data-uikey="${escapeHtml(String(state.uiKey))}">
       ${NavbarHTML()}
-      <main class="max-w-6xl mx-auto px-4 py-6">${mainContent}</main>
+      <main class="max-w-6xl mx-auto px-4 py-6">
+        ${MainViewHTML()}
+      </main>
       ${AuthModalHTML()}
       ${FooterHTML()}
       ${state.loading ? LoaderHTML() : ``}
-    </div>`;
+    </div>
+  `;
 
+  $app.innerHTML = html;
+
+  // lucide icons
   try { lucide.createIcons(); } catch(e) {}
+
   bindEvents();
 }
 
+// --- Bind events ---
+function selectedSlotsToPattern(selectedSlots) {
+  const out = new Set();
+  selectedSlots.forEach(k => {
+    const parts = String(k).split("-");
+    const day = parts[parts.length - 2];
+    const hour = parts[parts.length - 1];
+    if (day && hour) out.add(`${day}|${hour}`);
+  });
+  return Array.from(out);
+}
 function bindEvents() {
-  const home = document.getElementById("navHome"); if (home) home.onclick = () => goTo("hub");
-  const logout = document.getElementById("btnLogout"); if (logout) logout.onclick = () => { state.user = null; state.authRole = null; goTo("hub"); };
+  // Navbar -> home
+  const navHome = document.getElementById("navHome");
+  if (navHome) navHome.onclick = () => goTo("hub");
 
+  // Logout
+  const btnLogout = document.getElementById("btnLogout");
+  if (btnLogout) {
+    btnLogout.onclick = () => {
+      state.user = null;
+      state.authRole = null;
+      state.selectedMission = null;
+      state.isAuthModalOpen = false;
+      state.partnerSubmitted = false;
+      stopCoordPolling();
+      goTo("hub");
+    };
+  }
+
+  // Hub cards
   document.querySelectorAll("[data-hub-action]").forEach(el => {
     el.onclick = () => {
-      const act = el.getAttribute("data-hub-action");
-      if (act === "partner") { state.partnerSubmitted = false; goTo("partner"); }
-      if (act === "auth") { state.isAuthModalOpen = true; render(); }
+      const action = el.getAttribute("data-hub-action");
+      if (action === "partner") {
+        state.partnerSubmitted = false;
+        goTo("partner");
+      }
+      if (action === "auth") {
+        state.isAuthModalOpen = true;
+        render();
+      }
     };
   });
 
-  const authCancel = document.getElementById("btnAuthCancel"); if (authCancel) authCancel.onclick = () => { state.isAuthModalOpen = false; render(); };
-  const authForm = document.getElementById("authForm"); if (authForm) { authForm.onsubmit = (e) => { e.preventDefault(); handleLogin(document.getElementById("tokenInput").value); }; }
+  // Auth Modal
+  const btnAuthCancel = document.getElementById("btnAuthCancel");
+  if (btnAuthCancel) btnAuthCancel.onclick = () => { state.isAuthModalOpen = false; render(); };
 
-  const bp = document.getElementById("btnBackHubFromPartner"); if (bp) bp.onclick = () => goTo("hub");
-  const bps = document.getElementById("btnPartnerBackHub"); if (bps) bps.onclick = () => { state.partnerSubmitted = false; goTo("hub"); };
-  const pf = document.getElementById("partnerForm"); if (pf) { pf.onsubmit = async (e) => { e.preventDefault(); const res = await handleAction({ action: "createMission", ...Object.fromEntries(new FormData(pf).entries()) }); if (res?.ok) { state.partnerSubmitted = true; render(); } }; }
+  const authForm = document.getElementById("authForm");
+  if (authForm) {
+    authForm.onsubmit = (e) => {
+      e.preventDefault();
+      const token = document.getElementById("tokenInput")?.value || "";
+      handleLogin(token);
+    };
+  }
 
-  const vss = document.getElementById("volunteerSecteurSelect"); if (vss) vss.onchange = () => { if (state.user) state.user.secteur = vss.value; render(); };
-  document.querySelectorAll("[data-slot-key]").forEach(cell => { cell.onclick = () => { const k = cell.getAttribute("data-slot-key"); if (state.selectedSlots.has(k)) state.selectedSlots.delete(k); else state.selectedSlots.add(k); render(); }; });
-  const bsp = document.getElementById("btnSavePlanning"); if (bsp) bsp.onclick = () => handleAction({ action: "savePlanning", data: Array.from(state.selectedSlots) });
-  document.querySelectorAll("[data-take-mission]").forEach(b => b.onclick = () => handleAction({ action: "takeMission", code: b.getAttribute("data-take-mission") }));
-  document.querySelectorAll("[data-cancel-mission]").forEach(b => b.onclick = () => handleAction({ action: "cancelMission", code: b.getAttribute("data-cancel-mission") }));
+  // Partner
+  const btnBackHubFromPartner = document.getElementById("btnBackHubFromPartner");
+  if (btnBackHubFromPartner) btnBackHubFromPartner.onclick = () => goTo("hub");
 
-  document.querySelectorAll("[data-coord-tab]").forEach(b => b.onclick = () => { state.coordTab = b.getAttribute("data-coord-tab"); render(); });
-  const bcp = document.getElementById("btnCalPrev"); if (bcp) bcp.onclick = () => { state.calendarBaseDate.setMonth(state.calendarBaseDate.getMonth() - 1); render(); };
-  const bcn = document.getElementById("btnCalNext"); if (bcn) bcn.onclick = () => { state.calendarBaseDate.setMonth(state.calendarBaseDate.getMonth() + 1); render(); };
-  document.querySelectorAll("[data-open-mission]").forEach(b => b.onclick = () => { state.selectedMission = state.missions.find(x => String(x.code) === b.getAttribute("data-open-mission")); render(); });
+  const btnPartnerBackHub = document.getElementById("btnPartnerBackHub");
+  if (btnPartnerBackHub) {
+    btnPartnerBackHub.onclick = () => {
+      state.partnerSubmitted = false;
+      goTo("hub");
+    };
+  }
 
-  const bcm = document.getElementById("btnCloseMissionModal"); if (bcm) bcm.onclick = () => { state.selectedMission = null; render(); };
-  const bmv = document.getElementById("btnModalValidate"); if (bmv) bmv.onclick = async () => { await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "VALIDÉ" }); state.selectedMission = null; render(); };
-  const bma = document.getElementById("btnModalArchive"); if (bma) bma.onclick = async () => { await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "ARCHIVÉ" }); state.coordTab = "archives"; state.selectedMission = null; render(); };
+  const partnerForm = document.getElementById("partnerForm");
+  if (partnerForm) {
+    partnerForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(partnerForm);
+      const data = Object.fromEntries(fd.entries());
+      const res = await handleAction({ action: "createMission", ...data });
+      if (res && res.ok) {
+        state.partnerSubmitted = true;
+        render();
+      }
+    };
+  }
+
+  // Volunteer: zone select (UI local — identique comportement affichage)
+  const volunteerSecteurSelect = document.getElementById("volunteerSecteurSelect");
+  if (volunteerSecteurSelect) {
+    volunteerSecteurSelect.onchange = () => {
+      if (state.user) state.user.secteur = volunteerSecteurSelect.value;
+      render();
+    };
+  }
+
+  // Volunteer: toggle slots
+  document.querySelectorAll("[data-slot-key]").forEach(cell => {
+    cell.onclick = () => {
+      const k = cell.getAttribute("data-slot-key");
+      const n = new Set(state.selectedSlots);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      state.selectedSlots = n;
+      render();
+    };
+  });
+
+  // Volunteer: save planning
+  const btnSavePlanning = document.getElementById("btnSavePlanning");
+  if (btnSavePlanning) {
+  btnSavePlanning.onclick = async () => {
+    const range = getWeekRange(state.volunteerCurrentDate);
+    const pattern = selectedSlotsToPattern(state.selectedSlots);
+
+    await handleAction({
+      action: "saveAvailabilityPattern",
+      weekStart: toISODate(range.start),
+      weekEnd: toISODate(range.end),
+      pattern
+    });
+
+    // pour rafraîchir côté coord (si coord ouvert ailleurs)
+    fetchAvailabilityMatrix();
+  };
 }
 
+
+  // Volunteer: take mission
+  document.querySelectorAll("[data-take-mission]").forEach(btn => {
+    btn.onclick = () => {
+      const code = btn.getAttribute("data-take-mission");
+      handleAction({ action: "takeMission", code });
+    };
+  });
+
+  // Volunteer: cancel mission
+  document.querySelectorAll("[data-cancel-mission]").forEach(btn => {
+    btn.onclick = () => {
+      const code = btn.getAttribute("data-cancel-mission");
+      handleAction({ action: "cancelMission", code });
+    };
+  });
+
+  // Coord tabs
+  document.querySelectorAll("[data-coord-tab]").forEach(btn => {
+    btn.onclick = () => {
+      state.coordTab = btn.getAttribute("data-coord-tab");      if (state.coordTab === "planning") fetchAvailabilityMatrix();
+      render();
+    };
+  });
+
+  // Coord calendar prev/next
+  const btnCalPrev = document.getElementById("btnCalPrev");
+  if (btnCalPrev) {
+    btnCalPrev.onclick = () => {
+      const d = state.calendarBaseDate;
+      state.calendarBaseDate = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+      render();
+    };
+  }
+
+  const btnCalNext = document.getElementById("btnCalNext");
+  if (btnCalNext) {
+    btnCalNext.onclick = () => {
+      const d = state.calendarBaseDate;
+      state.calendarBaseDate = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      render();
+    };
+  }
+
+  // Coord open mission modal
+  document.querySelectorAll("[data-open-mission]").forEach(btn => {
+    btn.onclick = () => {
+      const code = btn.getAttribute("data-open-mission");
+      const m = state.missions.find(x => String(x.code || "").trim() === String(code || "").trim());
+      state.selectedMission = m || null;
+      render();
+    };
+  });
+
+  // Modal close
+  const btnCloseMissionModal = document.getElementById("btnCloseMissionModal");
+  if (btnCloseMissionModal) btnCloseMissionModal.onclick = () => { state.selectedMission = null; render(); };
+
+  // Modal validate
+  const btnModalValidate = document.getElementById("btnModalValidate");
+  if (btnModalValidate && state.selectedMission) {
+    btnModalValidate.onclick = async () => {
+      await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "VALIDÉ" });
+      state.selectedMission = null;
+      render();
+    };
+  }
+
+  // Modal archive
+  const btnModalArchive = document.getElementById("btnModalArchive");
+  if (btnModalArchive && state.selectedMission) {
+    btnModalArchive.onclick = async () => {
+      if (!state.selectedMission.code) { alert("Erreur: Code manquant"); return; }
+      await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "ARCHIVÉ" });
+      state.coordTab = "archives";
+      state.selectedMission = null;
+      render();
+    };
+  }
+}
+
+// --- INIT + MODE SECOURS TIMEOUT_BYPASS (strict) ---
 (async function init() {
-  const bypassTimer = setTimeout(() => { if (state.loading) { state.loading = false; state.error = "Mode secours activé."; state.missions = MOCK_DATA.missions.map(normalizeMission); render(); } }, TIMEOUT_BYPASS);
+  let isMounted = true;
+
+  const bypassTimer = setTimeout(() => {
+    if (state.loading && isMounted) {
+      state.loading = false;
+      state.error = "Mode secours activé.";
+      state.missions = MOCK_DATA.missions.map(normalizeMission);
+      render();
+    }
+  }, TIMEOUT_BYPASS);
+
   await fetchMissions();
-  clearTimeout(bypassTimer); state.loading = false; render();
+
+  if (isMounted) {
+    clearTimeout(bypassTimer);
+    state.loading = false;
+    render();
+  }
+
+  // cleanup "virtuel" (page unload)
+  window.addEventListener("beforeunload", () => { isMounted = false; });
 })();
+
   </script>
 </body>
 </html>
