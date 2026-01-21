@@ -1,11 +1,3 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <title>KOOM App</title>
-</head>
-<body>
-<pre><code>
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Users, 
@@ -167,6 +159,7 @@ export default function App() {
         setMissions(MOCK_DATA.missions.map(normalizeMission));
       }
     }, TIMEOUT_BYPASS);
+
     const initialize = async () => {
       await fetchMissions();
       if (isMounted) { clearTimeout(bypassTimer); setLoading(false); }
@@ -676,6 +669,3 @@ function AuditMiniCard({ label, status, color, icon: Icon }) {
     </div>
   );
 }
-</code></pre>
-</body>
-</html>
