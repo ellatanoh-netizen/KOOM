@@ -32,6 +32,15 @@
       gap: 1px;
       background-color: #f1f5f9;
     }
+    .status-badge {
+      font-size: 7px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    select, input, textarea { font-size: 11px !important; }
   </style>
 </head>
 
@@ -39,8 +48,12 @@
   <div id="app"></div>
 
   <script>
+/**
+ * KOOM - SYSTEM v5.4 (Complete Pro Edition)
+ * Restauration : Sélection des Zones, Volet Missions, Planning, Logs, Triggers.
+ */
+
 const API_URL = "https://script.google.com/macros/s/AKfycbzZyTFTBEFKx4RX7qQObKGiZmmbgPB9NT_7ZQjJUh3AhXGoSGDU_2dtZZeacIUjT9zMFQ/exec";
-const CR_FORM_BASE = "https://docs.google.com/forms/d/e/1FAIpQLSdUtRDVw9x2rKQ7qLNikLqoajvHhcnd6aCNF87hLqn_oBwcZw/viewform?usp=pp_url&entry.1178799885=";
 const LOGO_URL = "https://lgedroitetjustice.fr/wp-content/uploads/2025/05/cropped-cropped-LOGO-2-282x300.png";
 const TIMEOUT_BYPASS = 4000;
 
@@ -63,31 +76,24 @@ const state = {
   view: "hub",
   loading: true,
   error: null,
-
   user: null,
   authRole: null,
   isAuthModalOpen: false,
-
-  // Compteurs mis à zéro par défaut
   missions: [],
   selectedSlots: new Set(),
   selectedMission: null,
   coordTab: "journal",
-
   uiKey: 0,
-  volunteerCurrentDate: new Date(2026, 0, 1),
-  calendarBaseDate: new Date(2026, 0, 1),
-  coordWeekDate: new Date(2026, 0, 1),
-
+  volunteerCurrentDate: new Date(), 
+  calendarBaseDate: new Date(),
+  coordWeekDate: new Date(), 
   partnerSubmitted: false,
-
   systemLogs: [
     { time: "08:00:01", event: "Trigger Automatique : Nettoyage", status: "SUCCESS", type: "system" },
     { time: "08:00:05", event: "Test : Intégrité API", status: "OK", type: "test" },
     { time: "09:00:00", event: "Mail : Rappel J-1 envoyé", status: "SENT", type: "mail" },
     { time: "10:00:00", event: "Test : Latence Cloud", status: "240ms", type: "test" }
   ],
-
   availabilityMatrix: {},
   availabilityLastSync: null,
   coordPollingTimer: null
@@ -95,11 +101,37 @@ const state = {
 
 const $app = document.getElementById("app");
 
+/**
+ * UTILITAIRES
+ */
 function escapeHtml(str = "") {
   return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 }
 
 function upperTrim(val) { return String(val ?? "").trim().toUpperCase(); }
+
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function formatFR(d){ return new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
+
+function toISODate(d){ const x = new Date(d); return `${x.getFullYear()}-${pad2(x.getMonth()+1)}-${pad2(x.getDate())}`; }
+
+function getWeekRange(date) {
+  const curr = new Date(date);
+  const day = curr.getDay();
+  const diff = curr.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(new Date(curr).setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(new Date(monday).setDate(monday.getDate() + 6));
+  return { start: monday, end: sunday };
+}
+
+function getDayLabel(monday, offset) {
+  const days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+  const d = new Date(monday);
+  d.setDate(d.getDate() + offset);
+  return `${days[offset]} ${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+}
 
 function normalizeMission(m) {
   const mm = { ...m };
@@ -114,6 +146,7 @@ function normalizeMission(m) {
   mm.phone = m.phone || m.Téléphone || "";
   mm.refDossier = m.refDossier || m.Référence || "";
   mm.commentaires = m.commentaires || m.Commentaires || "";
+  mm.typeMission = m.Type_Mission || m.typeMission || m["Type de mission"];
   return mm;
 }
 
@@ -122,122 +155,96 @@ async function fetchWithRetry(url, options = {}, retries = 2, backoff = 1000) {
     const response = await fetch(url, { ...options, mode: "cors", redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text();
-    try { return JSON.parse(text); } catch { return { ok: false, error: "JSON Invalide" }; }
+    if (!text || text.trim() === "") return { ok: false };
+    return JSON.parse(text);
   } catch (err) {
     if (retries > 0) {
       await new Promise(r => setTimeout(r, backoff));
       return fetchWithRetry(url, options, retries - 1, backoff * 1.5);
     }
-    throw err;
+    return { ok: false, error: err.message };
   }
 }
 
-function getWeekRange(date) {
-  const curr = new Date(date);
-  const day = curr.getDay();
-  const diff = curr.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(new Date(curr).setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  const saturday = new Date(new Date(monday).setDate(monday.getDate() + 5));
-  return { start: monday, end: saturday };
-}
-
-function goTo(nextView) {
-  state.error = null;
-  state.isAuthModalOpen = false;
-  state.selectedMission = null;
-  if (nextView !== "coord") state.coordTab = "journal";
-  if (nextView !== "volunteer") state.selectedSlots = new Set();
-  state.view = nextView;
-  if (nextView === "coord") startCoordPolling(); else stopCoordPolling();
-  state.uiKey++;
-  render();
-}
-
-function pad2(n){ return String(n).padStart(2,"0"); }
-function toISODate(d){ const x = new Date(d); return `${x.getFullYear()}-${pad2(x.getMonth()+1)}-${pad2(x.getDate())}`; }
-function formatFR(d){ return new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
-
+/**
+ * COMPOSANTS UI
+ */
 function LoaderHTML() {
-  return `
-    <div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/95 backdrop-blur-md">
-      <div class="relative flex items-center justify-center">
-        <div class="w-12 h-12 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
-        <img src="${LOGO_URL}" class="absolute w-8 h-8 object-contain" alt="Logo">
-      </div>
-      <p class="mt-4 text-slate-500 font-bold text-[9px] uppercase tracking-widest">KOOM Synchronization...</p>
+  return `<div class="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-white/95 backdrop-blur-md">
+    <div class="relative flex items-center justify-center">
+      <div class="w-12 h-12 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
+      <img src="${LOGO_URL}" class="absolute w-8 h-8 object-contain" alt="Logo">
     </div>
-  `;
+    <p class="mt-4 text-slate-500 font-bold text-[9px] uppercase tracking-widest leading-none">KOOM Synchronization...</p>
+  </div>`;
 }
 
 function NavbarHTML() {
   const user = state.user;
-  return `
-    <nav class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-emerald-100 px-5 py-2.5 flex justify-between items-center h-14 shadow-sm">
-      <div class="flex items-center gap-3 cursor-pointer" id="navHome">
-        <img src="${LOGO_URL}" class="w-8 h-8 object-contain" alt="Logo Association">
-        <div class="flex flex-col text-left">
-          <h1 class="text-sm font-black tracking-tighter leading-none">KOOM</h1>
-          <p class="text-[6px] text-emerald-600 uppercase font-black tracking-widest">${escapeHtml(ASSO_NAME)}</p>
-        </div>
+  return `<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-emerald-100 px-5 py-2.5 flex justify-between items-center h-14 shadow-sm">
+    <div class="flex items-center gap-3 cursor-pointer" id="navHome">
+      <img src="${LOGO_URL}" class="w-8 h-8 object-contain" alt="Logo">
+      <div class="flex flex-col text-left">
+        <h1 class="text-sm font-black tracking-tighter leading-none">KOOM</h1>
+        <p class="text-[6px] text-emerald-600 uppercase font-black tracking-widest">${escapeHtml(ASSO_NAME)}</p>
       </div>
-      ${user ? `
-        <div class="flex items-center gap-4">
-          <div class="text-right leading-none">
-            <p class="text-[10px] font-black text-slate-900 uppercase">${escapeHtml(user.name)}</p>
-            <p class="text-[8px] text-emerald-600 font-black uppercase tracking-widest">${state.authRole === "BENE" ? "BÉNÉVOLE" : "COORDINATION"}</p>
-          </div>
-          <button id="btnLogout" class="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-red-600 transition-all">
-            <i data-lucide="log-out" style="width:16px;height:16px;"></i>
-          </button>
-        </div>
-      ` : `<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest opacity-40">v4.8 Stable • 2026</div>`}
-    </nav>
-  `;
+    </div>
+    ${user ? `<div class="flex items-center gap-4">
+      <div class="text-right leading-none">
+        <p class="text-[10px] font-black text-slate-900 uppercase">${escapeHtml(user.name)}</p>
+        <p class="text-[8px] text-emerald-600 font-black uppercase tracking-widest">${state.authRole === "BENE" ? "BÉNÉVOLE" : "COORDINATION"}</p>
+      </div>
+      <button id="btnLogout" class="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-red-600 transition-all"><i data-lucide="log-out" style="width:16px;height:16px;"></i></button>
+    </div>` : `<div class="text-[8px] font-black text-slate-400 uppercase tracking-widest opacity-40">v5.4 Stable • 2026</div>`}
+  </nav>`;
 }
 
 function FooterHTML() {
-  return `<footer class="mt-12 py-8 border-t border-slate-200 text-center bg-white/50"><p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">${escapeHtml(ASSO_NAME)}</p><p class="text-[8px] text-slate-300 mt-2 font-bold uppercase tracking-wider">KOOM System • Version Stable v4.8 • 2026</p></footer>`;
+  return `<footer class="mt-12 py-8 border-t border-slate-200 text-center bg-white/50"><p class="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">${escapeHtml(ASSO_NAME)}</p><p class="text-[8px] text-slate-300 mt-2 font-bold uppercase tracking-wider">KOOM System • Version Stable v5.4 • 2026</p></footer>`;
 }
 
 function HubCardHTML({ icon, title, label, isDark, color, action }) {
-  return `
-    <div data-hub-action="${escapeHtml(action)}"
-      class="${isDark ? "bg-slate-900 text-white" : "bg-white text-slate-900 border border-slate-100"} p-8 rounded-[2rem] shadow-xl cursor-pointer hover:-translate-y-2 transition-all">
-      <div class="w-12 h-12 rounded-2xl flex items-center justify-center mb-6 mx-auto ${isDark ? "bg-white/10" : escapeHtml(color)}">
-        <i data-lucide="${escapeHtml(icon)}" style="width:24px;height:24px;"></i>
-      </div>
-      <h3 class="text-xl font-black uppercase mb-2">${escapeHtml(title)}</h3>
-      <p class="${isDark ? "text-white/40" : "text-slate-400"} text-[9px] font-black uppercase tracking-widest">${escapeHtml(label)}</p>
+  return `<div data-hub-action="${escapeHtml(action)}" class="${isDark ? "bg-slate-900 text-white" : "bg-white text-slate-900 border border-slate-100"} p-8 rounded-[2rem] shadow-xl cursor-pointer hover:-translate-y-2 transition-all">
+    <div class="w-12 h-12 rounded-2xl flex items-center justify-center mb-6 mx-auto ${isDark ? "bg-white/10" : escapeHtml(color)}">
+      <i data-lucide="${escapeHtml(icon)}" style="width:24px;height:24px;"></i>
     </div>
-  `;
+    <h3 class="text-xl font-black uppercase mb-2">${escapeHtml(title)}</h3>
+    <p class="${isDark ? "text-white/40" : "text-slate-400"} text-[9px] font-black uppercase tracking-widest">${escapeHtml(label)}</p>
+  </div>`;
 }
 
 function HubHTML() {
-  return `
-    <div class="py-6 text-center animate-in">
-      <h1 class="text-6xl font-black text-slate-900 mb-2 tracking-tighter uppercase">KOOM</h1>
-      <p class="text-slate-400 font-bold uppercase tracking-widest text-[9px] mb-12">Gestion automatisée des missions terrain</p>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        ${HubCardHTML({ icon: "plus-circle", title: "Partenaires", label: "Dépôt Mission", action: "partner", color: "bg-blue-50 text-blue-600", isDark: false })}
-        ${HubCardHTML({ icon: "users", title: "Bénévoles", label: "Planning", action: "auth", color: "bg-emerald-50 text-emerald-600", isDark: false })}
-        ${HubCardHTML({ icon: "shield-check", title: "Coordination", label: "Pilotage", action: "auth", color: "bg-slate-900 text-white", isDark: true })}
-      </div>
-      ${state.error ? `<div class="mt-8 max-w-xl mx-auto bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">${escapeHtml(state.error)}</div>` : ``}
+  return `<div class="py-6 text-center animate-in">
+    <h1 class="text-6xl font-black text-slate-900 mb-2 tracking-tighter uppercase">KOOM</h1>
+    <p class="text-slate-400 font-bold uppercase tracking-widest text-[9px] mb-12">Gestion automatisée des missions terrain</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      ${HubCardHTML({ icon: "plus-circle", title: "Partenaires", label: "Dépôt Mission", action: "partner", color: "bg-blue-50 text-blue-600", isDark: false })}
+      ${HubCardHTML({ icon: "users", title: "Bénévoles", label: "Planning", action: "auth", color: "bg-emerald-50 text-emerald-600", isDark: false })}
+      ${HubCardHTML({ icon: "shield-check", title: "Coordination", label: "Pilotage", action: "auth", color: "bg-slate-900 text-white", isDark: true })}
     </div>
-  `;
+    ${state.error ? `<div class="mt-8 max-w-xl mx-auto bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest">${escapeHtml(state.error)}</div>` : ``}
+  </div>`;
 }
 
 function AuthModalHTML() {
   if (!state.isAuthModalOpen) return ``;
-  return `<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"><div class="bg-white w-full max-w-sm p-10 rounded-[2.5rem] shadow-2xl text-center animate-in"><h3 class="text-xl font-black mb-6 uppercase">Identification</h3><form id="authForm" class="space-y-4"><input id="tokenInput" type="password" required autofocus placeholder="••••" class="w-full p-4 rounded-2xl bg-slate-50 border-2 border-slate-100 text-center font-mono text-xl focus:border-emerald-600 outline-none" /><button id="btnAuthSubmit" ${state.loading ? "disabled" : ""} type="submit" class="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-900 transition-all text-xs">${state.loading ? "..." : "Valider"}</button><button id="btnAuthCancel" type="button" class="text-slate-400 text-[10px] font-bold uppercase">Annuler</button></form></div></div>`;
+  return `<div class="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white w-full max-w-sm p-10 rounded-[2.5rem] shadow-2xl text-center animate-in">
+      <h3 class="text-xl font-black mb-6 uppercase">Identification</h3>
+      <form id="authForm" class="space-y-4">
+        <input id="tokenInput" type="password" required autofocus placeholder="••••" class="w-full p-4 rounded-2xl bg-slate-50 border-2 border-slate-100 text-center font-mono text-xl focus:border-emerald-600 outline-none" />
+        <button id="btnAuthSubmit" ${state.loading ? "disabled" : ""} type="submit" class="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-900 transition-all text-xs">${state.loading ? "..." : "Valider"}</button>
+        <button id="btnAuthCancel" type="button" class="text-slate-400 text-[10px] font-bold uppercase mt-2">Annuler</button>
+      </form>
+    </div>
+  </div>`;
 }
 
 function FieldHTML({ label, name, type = "text", required = false, pattern, placeholder, value = "" }) {
   const req = required ? "required" : "";
   const pat = pattern ? `pattern="${escapeHtml(pattern)}"` : "";
   const ph = placeholder ? `placeholder="${escapeHtml(placeholder)}"` : "";
-  return `<div class="w-full flex flex-col gap-1.5 text-left"><label class="text-[9px] font-black uppercase text-slate-400 ml-2 tracking-widest leading-none">${escapeHtml(label)}</label><input name="${escapeHtml(name)}" type="${escapeHtml(type)}" ${req} ${pat} ${ph} value="${escapeHtml(value)}" class="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold shadow-inner text-slate-900 text-[11px] placeholder:text-slate-300 transition-all" /></div>`;
+  return `<div class="w-full flex flex-col gap-1.5 text-left"><label class="text-[9px] font-black uppercase text-slate-400 ml-2 tracking-widest leading-none">${escapeHtml(label)}</label><input name="${escapeHtml(name)}" type="${escapeHtml(type)}" ${req} ${pat} ${ph} value="${escapeHtml(value)}" class="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold shadow-inner text-slate-900 text-[11px] transition-all" /></div>`;
 }
 
 function DropdownHTML({ label, name, options, required = false }) {
@@ -246,74 +253,85 @@ function DropdownHTML({ label, name, options, required = false }) {
   return `<div class="w-full flex flex-col gap-1.5 text-left"><label class="text-[9px] font-black uppercase text-slate-400 ml-2 tracking-widest leading-none">${escapeHtml(label)}</label><div class="relative"><select name="${escapeHtml(name)}" ${req} class="w-full px-5 py-3.5 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold appearance-none cursor-pointer text-slate-900 text-[11px] shadow-inner transition-all"><option value="" disabled selected>Sélectionner...</option>${opts}</select><div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"><i data-lucide="chevron-right" style="width:14px;height:14px;" class="rotate-90"></i></div></div></div>`;
 }
 
+/**
+ * MODULE PARTENAIRE (COMPLET)
+ */
 function PartnerModuleHTML() {
   if (state.partnerSubmitted) return `<div class="text-center py-20 animate-in"><div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-100/50"><i data-lucide="check-circle" style="width:40px;height:40px;"></i></div><h2 class="text-2xl font-black uppercase tracking-tighter">Dossier Transmis</h2><p class="text-slate-400 font-bold text-[10px] uppercase mt-2 mb-8 tracking-widest">Un accusé de réception vous a été envoyé</p><button id="btnPartnerBackHub" class="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl">Retour Hub</button></div>`;
-  return `<div class="max-w-3xl mx-auto animate-in text-left"><button id="btnBackHubFromPartner" class="mb-6 text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors"><i data-lucide="chevron-left" style="width:14px;height:14px;"></i> Retour Hub</button><div class="bg-white p-10 md:p-14 rounded-[3rem] shadow-2xl border border-slate-100"><h2 class="text-4xl font-black mb-10 text-slate-900 tracking-tighter uppercase underline decoration-emerald-500 decoration-4 underline-offset-8">Nouvelle Mission</h2><form id="partnerForm" class="grid grid-cols-1 md:grid-cols-2 gap-6"><div class="md:col-span-2">${FieldHTML({ label: "Structure / Organisme Nom Complet *", name: "structure", required: true })}</div>${FieldHTML({ label: "Référence dossier interne *", name: "refDossier", required: true })}${FieldHTML({ label: "Email de contact (Accusé) *", name: "emailContact", type: "email", required: true })}${FieldHTML({ label: "Numéro de téléphone direct *", name: "phone", type: "tel", required: true, pattern: "[0-9]{10}", placeholder: "0600000000" })}${DropdownHTML({ label: "Type de mission *", name: "typeMission", options: MISSION_TYPES, required: true })}<div class="md:col-span-2">${DropdownHTML({ label: "Secteur de Toulouse (Obligatoire) *", name: "secteur", options: SECTEURS.map(s => ({ id: s.value, label: s.label })), required: true })}</div>${FieldHTML({ label: "Date du rendez-vous *", name: "date", type: "date", required: true })}${FieldHTML({ label: "Heure du rendez-vous *", name: "heure", type: "time", required: true })}<div class="md:col-span-2">${FieldHTML({ label: "Lieu exact (Adresse complète) *", name: "lieu", required: true })}</div><div class="md:col-span-2"><label class="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-2 tracking-widest">Commentaires / Précisions</label><textarea name="commentaires" class="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold text-slate-900 h-24 resize-none shadow-inner" placeholder="Ex: Besoin traducteur, étage, code d'entrée..."></textarea></div><div class="md:col-span-2 py-4"><button type="submit" class="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-emerald-700 transition-all text-sm">Transmettre le dossier</button></div></form></div></div>`;
+  
+  return `<div class="max-w-3xl mx-auto animate-in text-left">
+    <button id="btnBackHubFromPartner" class="mb-6 text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors"><i data-lucide="chevron-left" style="width:14px;height:14px;"></i> Retour Hub</button>
+    <div class="bg-white p-10 md:p-14 rounded-[3rem] shadow-2xl border border-slate-100">
+      <h2 class="text-4xl font-black mb-10 text-slate-900 tracking-tighter uppercase underline decoration-emerald-500 decoration-4 underline-offset-8">Nouvelle Mission</h2>
+      <form id="partnerForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="md:col-span-2">${FieldHTML({ label: "Structure / Organisme Nom Complet *", name: "structure", required: true })}</div>
+        ${FieldHTML({ label: "Référence dossier interne *", name: "refDossier", required: true })}
+        ${FieldHTML({ label: "Email de contact (Accusé) *", name: "emailContact", type: "email", required: true })}
+        ${FieldHTML({ label: "Numéro de téléphone direct *", name: "phone", type: "tel", required: true, pattern: "[0-9]{10}", placeholder: "0600000000" })}
+        ${DropdownHTML({ label: "Type de mission *", name: "typeMission", options: MISSION_TYPES, required: true })}
+        <div class="md:col-span-2">${DropdownHTML({ label: "Secteur de Toulouse (Obligatoire) *", name: "secteur", options: SECTEURS.map(s => ({ id: s.value, label: s.label })), required: true })}</div>
+        ${FieldHTML({ label: "Date du rendez-vous *", name: "date", type: "date", required: true })}
+        ${FieldHTML({ label: "Heure du rendez-vous *", name: "heure", type: "time", required: true })}
+        <div class="md:col-span-2">${FieldHTML({ label: "Lieu exact ( Adresse complète) *", name: "lieu", required: true })}</div>
+        <div class="md:col-span-2">
+          <label class="block text-[10px] font-black uppercase text-slate-400 mb-2 ml-2 tracking-widest leading-none">Commentaires / Précisions</label>
+          <textarea name="commentaires" class="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-emerald-600 outline-none font-bold text-slate-900 h-24 resize-none shadow-inner" placeholder="Ex: Besoin traducteur, étage, code d'entrée..."></textarea>
+        </div>
+        <div class="md:col-span-2 py-4"><button type="submit" class="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-emerald-700 transition-all text-sm">Transmettre le dossier</button></div>
+      </form>
+    </div>
+  </div>`;
 }
 
+/**
+ * PORTAIL BÉNÉVOLE (RÉTABLI AVEC ZONES ET MISSIONS)
+ */
 function VolunteerDashboardHTML() {
   const user = state.user;
   const range = getWeekRange(state.volunteerCurrentDate);
-  const rangeLabel = `DU ${formatFR(range.start)} AU ${formatFR(range.end)}`;
-  const days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
-  const activeCount = state.missions.filter(m => m.volunteerName === user.name && !upperTrim(m.statut).startsWith("ARCHIV")).length;
+  const daysLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const sectorOpts = SECTEURS.map(s => `<option value="${s.value}" ${user.secteur === s.value ? "selected" : ""}>${s.label}</option>`).join("");
   
   const planningRows = Array.from({ length: 12 }).map((_, hIdx) => {
     const h = `${pad2(8 + hIdx)}:00`;
-    return `<tr class="border-t border-slate-50"><td class="p-2 font-black text-slate-300">${h}</td>${days.map(d => {
-      const k = `${range.start.toDateString()}-${d}-${h}`;
+    return `<tr class="border-t border-slate-50"><td class="p-2 font-black text-slate-300 text-center">${h}</td>${daysLabels.map((dLabel, dIdx) => {
+      const k = `${range.start.toDateString()}-${dLabel}-${h}`;
       return `<td class="p-0.5"><div data-slot-key="${k}" class="h-7 rounded-lg cursor-pointer border transition-all ${state.selectedSlots.has(k) ? "bg-emerald-600 border-emerald-600 shadow-inner" : "bg-slate-50 border-transparent hover:border-emerald-200"}"></div></td>`;
     }).join("")}</tr>`;
   }).join("");
 
-  const sectorOpts = SECTEURS.map(s => `<option value="${s.value}" ${user.secteur === s.value ? "selected" : ""}>${s.label}</option>`).join("");
+  const availableMissions = state.missions.filter(m => m.statut === "VALIDÉ" && !m.volunteerName);
 
   return `<div class="space-y-4 animate-in text-left">
-    <div class="bg-emerald-600 p-5 rounded-[1.5rem] text-white shadow-lg flex justify-between items-center overflow-hidden">
-      <div class="relative z-10 text-left">
-        <h2 class="text-lg font-black uppercase leading-tight">Bonjour, ${escapeHtml(user.name)}</h2>
-        <p class="opacity-80 font-bold text-[8px] tracking-[0.2em] uppercase mt-0.5">${escapeHtml(user.secteur)}</p>
-      </div>
-      <div class="relative z-10 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl text-center border border-white/20 min-w-[80px]">
-        <p class="text-[7px] font-black uppercase opacity-60">Actives</p>
-        <p class="text-xl font-black leading-none">${activeCount}</p>
-      </div>
-    </div>
-
+    <div class="flex justify-between items-center mb-2"><button id="btnVolBackHub" class="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors"><i data-lucide="chevron-left" style="width:14px;height:14px;"></i> Retour Hub</button></div>
+    
+    <div class="bg-emerald-600 p-5 rounded-[1.5rem] text-white shadow-lg flex justify-between items-center overflow-hidden"><div class="relative z-10"><h2 class="text-lg font-black uppercase leading-tight">Bonjour, ${escapeHtml(user.name)}</h2><p class="opacity-80 font-bold text-[8px] tracking-[0.2em] uppercase mt-0.5">Secteur Actuel : ${escapeHtml(user.secteur)}</p></div><div class="relative z-10 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl text-center border border-white/20 min-w-[80px]"><p class="text-[7px] font-black uppercase opacity-60">Actives</p><p class="text-xl font-black leading-none">${state.missions.filter(m => m.volunteerName === user.name).length}</p></div></div>
+    
+    <!-- SÉLECTION ZONE BÉNÉVOLE (RÉTABLI) -->
     <div class="bg-white p-4 rounded-xl border border-emerald-50 shadow-sm text-left">
-      <label class="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest block mb-1">Ma zone d'intervention active</label>
+      <label class="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest block mb-1 leading-none">Ma zone d'intervention préférentielle</label>
       <select id="volunteerSecteurSelect" class="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-[10px] outline-none uppercase focus:ring-2 focus:ring-emerald-500/20">
         ${sectorOpts}
       </select>
     </div>
 
     <div class="bg-white p-5 rounded-[1.5rem] shadow-xl border border-emerald-50 text-left">
-      <div class="flex justify-between items-center mb-5">
-        <div>
-          <h3 class="text-xs font-black uppercase tracking-widest text-emerald-900 leading-none">Planning Hebdomadaire</h3>
-          <div class="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl w-fit mt-2 text-[9px] font-black uppercase tracking-widest">${rangeLabel}</div>
-          <div class="flex gap-2 mt-2"><button id="btnWeekPrev" class="px-3 py-2 border rounded-lg text-xs font-bold">←</button><button id="btnWeekNext" class="px-3 py-2 border rounded-lg text-xs font-bold">→</button></div>
+      <div class="flex justify-between items-start md:items-center mb-5 flex-col md:flex-row gap-4">
+        <div><h3 class="text-xs font-black uppercase tracking-widest text-emerald-900 leading-none">Mon Planning Hebdomadaire</h3><div class="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-xl w-fit mt-2 text-[9px] font-black uppercase tracking-widest">DU ${formatFR(range.start)} AU ${formatFR(range.end)}</div><div class="flex gap-2 mt-2"><button id="btnWeekPrev" class="px-3 py-2 border border-slate-100 rounded-lg text-[9px] font-black uppercase hover:bg-slate-50 transition-colors">← Préc.</button><button id="btnWeekNext" class="px-3 py-2 border border-slate-100 rounded-lg text-[9px] font-black uppercase hover:bg-slate-50 transition-colors">Suiv. →</button></div></div>
+        <div class="flex gap-2 w-full md:w-auto">
+          <button id="btnSyncPlanning" class="flex-1 md:flex-none px-5 py-2 bg-slate-100 text-slate-500 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i> Synchro</button>
+          <button id="btnSavePlanning" class="flex-1 md:flex-none px-5 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"><i data-lucide="save" style="width:14px;height:14px;"></i> Enregistrer</button>
         </div>
-        <button id="btnSavePlanning" class="px-5 py-2 bg-emerald-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg flex items-center gap-2">
-          <i data-lucide="save" style="width:14px;height:14px;"></i> Enregistrer
-        </button>
       </div>
-      <div class="overflow-x-auto no-scrollbar">
-        <table class="w-full text-center text-[9px]">
-          <thead><tr><th class="p-2"></th>${days.map(d => `<th class="p-2 text-slate-400 font-black uppercase tracking-widest">${d.slice(0,3)}</th>`).join("")}</tr></thead>
-          <tbody>${planningRows}</tbody>
-        </table>
-      </div>
+      <div class="overflow-x-auto no-scrollbar"><table class="w-full text-[9px]"><thead><tr><th class="p-2 w-16"></th>${daysLabels.map((d, i) => `<th class="p-2 text-slate-400 font-black uppercase tracking-widest text-center">${getDayLabel(range.start, i)}</th>`).join("")}</tr></thead><tbody>${planningRows}</tbody></table></div>
     </div>
 
+    <!-- VOLET MISSIONS DISPONIBLES (RÉTABLI) -->
     <h3 class="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2 mt-8">Dossiers Disponibles</h3>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      ${state.missions.filter(m => m.statut === "VALIDÉ" && !m.volunteerName).length === 0 ? `<div class="col-span-full py-8 text-center text-slate-300 uppercase tracking-widest">Aucune mission disponible</div>` : state.missions.filter(m => m.statut === "VALIDÉ" && !m.volunteerName).map(m => `
+      ${availableMissions.length === 0 ? `<div class="col-span-full py-12 text-center text-slate-300 uppercase tracking-widest bg-white rounded-3xl border-2 border-dashed border-slate-100">Aucune mission disponible</div>` : availableMissions.map(m => `
         <div class="bg-white p-5 rounded-[1.8rem] shadow-md border-l-[10px] border-emerald-600 text-left">
-          <div class="flex justify-between items-start mb-3">
-            <span class="text-[7px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-600">${escapeHtml(m.statut)}</span>
-            <span class="text-[9px] font-black text-slate-400">${escapeHtml(m.heure)}</span>
-          </div>
+          <div class="flex justify-between items-start mb-3"><span class="status-badge bg-emerald-50 text-emerald-600">${escapeHtml(m.statut)}</span><span class="text-[9px] font-black text-slate-400">${escapeHtml(m.heure)}</span></div>
           <h4 class="text-md font-black mb-1 uppercase tracking-tighter leading-tight">${escapeHtml(m.structure)}</h4>
           <p class="text-emerald-600 font-black text-[8px] mb-4 uppercase tracking-widest">${escapeHtml(m.typeMission)} • ${escapeHtml(m.secteur)}</p>
           <button data-take-mission="${escapeHtml(m.code)}" class="w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg hover:bg-emerald-700 transition-all">M'ENGAGER</button>
@@ -322,6 +340,9 @@ function VolunteerDashboardHTML() {
   </div>`;
 }
 
+/**
+ * COORDINATION & CALENDRIERS
+ */
 function CoordMonthCalendarHTML() {
   const d = state.calendarBaseDate;
   const monthName = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }).toUpperCase();
@@ -337,85 +358,98 @@ function CoordMonthCalendarHTML() {
     const badges = missionsDay.map(m => `<div class="bg-emerald-600 text-white text-[6px] p-1 rounded font-bold uppercase truncate mb-0.5" title="${m.structure}">${m.heure} ${m.structure}</div>`).join("");
     cells.push(`<div class="bg-white min-h-[90px] p-2 border-t border-l border-slate-100 hover:bg-slate-50 transition-colors group"><span class="text-[10px] font-black text-slate-200 group-hover:text-emerald-500">${day}</span><div class="mt-1">${badges}</div></div>`);
   }
-  return `<div class="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in text-left"><div class="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-100"><h3 class="text-xl font-black uppercase tracking-tighter">${monthName}</h3><div class="flex gap-2"><button id="btnCalPrev" class="p-2 bg-white rounded-xl shadow-sm border border-slate-100"><i data-lucide="chevron-left" style="width:16px;height:16px;"></i></button><button id="btnCalNext" class="p-2 bg-white rounded-xl shadow-sm border border-slate-100"><i data-lucide="chevron-right" style="width:16px;height:16px;"></i></button></div></div><div class="calendar-grid">${["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(h => `<div class="bg-slate-50 p-3 text-center text-[8px] font-black text-slate-400 uppercase tracking-widest">${h}</div>`).join("")}${cells.join("")}</div></div>`;
+  return `<div class="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in text-left"><div class="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-100"><h3 class="text-xl font-black uppercase tracking-tighter">${monthName}</h3><div class="flex gap-2"><button id="btnCalPrev" class="p-2 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"><i data-lucide="chevron-left" style="width:16px;height:16px;"></i></button><button id="btnCalNext" class="p-2 bg-white rounded-xl shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"><i data-lucide="chevron-right" style="width:16px;height:16px;"></i></button></div></div><div class="calendar-grid">${["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(h => `<div class="bg-slate-50 p-3 text-center text-[8px] font-black text-slate-400 uppercase tracking-widest">${h}</div>`).join("")}${cells.join("")}</div></div>`;
 }
 
 function CoordVolunteerWeekHTML() {
   const range = getWeekRange(state.coordWeekDate);
   const label = `SEMAINE DU ${formatFR(range.start)} AU ${formatFR(range.end)}`;
-  const days = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const daysLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
   const hours = Array.from({ length: 12 }).map((_, i) => `${pad2(8 + i)}:00`);
-  return `<div class="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in text-left"><div class="p-6 bg-slate-900 text-white flex justify-between items-center"><div><h3 class="text-xl font-black uppercase tracking-tighter leading-none mb-1">Planning Disponibilités</h3><p class="text-[8px] font-black opacity-60 uppercase tracking-widest">${label}</p></div><div class="flex gap-2"><button id="btnCoordWeekPrev" class="p-2 bg-white/10 rounded-xl hover:bg-white/20"><i data-lucide="chevron-left" style="width:16px;height:16px;"></i></button><button id="btnCoordWeekNext" class="p-2 bg-white/10 rounded-xl hover:bg-white/20"><i data-lucide="chevron-right" style="width:16px;height:16px;"></i></button></div></div><div class="overflow-x-auto no-scrollbar"><table class="w-full text-[10px] text-left"><thead class="bg-slate-50 border-b border-slate-100"><tr><th class="p-4 text-[8px] font-black text-slate-400 uppercase w-16 text-center">HEURE</th>${days.map(d => `<th class="p-4 text-[8px] font-black text-slate-400 uppercase">${d}</th>`).join("")}</tr></thead><tbody class="divide-y divide-slate-50 font-bold">${hours.map(h => `<tr><td class="p-4 font-black text-slate-300 text-center">${h}</td>${days.map(d => {
-    const list = state.availabilityMatrix[`${d}|${h}`] || [];
-    return `<td class="p-2 align-top"><div class="flex flex-wrap gap-1">${list.length ? list.map(name => `<span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md text-[7px] font-black uppercase tracking-widest border border-emerald-100">${escapeHtml(name)}</span>`).join("") : `<span class="text-slate-200">—</span>`}</div></td>`;
-  }).join("")}</tr>`).join("")}</tbody></table></div></div>`;
+  return `<div class="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in text-left">
+    <div class="p-6 bg-slate-900 text-white flex justify-between items-center">
+      <div><h3 class="text-xl font-black uppercase tracking-tighter leading-none mb-1">Planning Disponibilités</h3><p class="text-[8px] font-black opacity-60 uppercase tracking-widest">${label}</p></div>
+      <div class="flex gap-2"><button id="btnCoordSync" class="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"><i data-lucide="refresh-cw" style="width:14px;height:14px;"></i></button><button id="btnCoordWeekPrev" class="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"><i data-lucide="chevron-left" style="width:14px;height:14px;"></i></button><button id="btnCoordWeekNext" class="p-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button></div>
+    </div>
+    <div class="overflow-x-auto no-scrollbar">
+      <table class="w-full text-[10px] text-left">
+        <thead class="bg-slate-50 border-b border-slate-100">
+          <tr><th class="p-4 text-[8px] font-black text-slate-400 uppercase w-16 text-center">HEURE</th>${daysLabels.map((d, i) => `<th class="p-4 text-[8px] font-black text-slate-400 uppercase text-center">${getDayLabel(range.start, i)}</th>`).join("")}</tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50 font-bold">
+          ${hours.map(h => `<tr><td class="p-4 font-black text-slate-300 text-center">${h}</td>${daysLabels.map(d => {
+            const list = state.availabilityMatrix[`${d}|${h}`] || [];
+            return `<td class="p-2 align-top"><div class="flex flex-wrap gap-1">${list.length ? list.map(name => `<span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md text-[7px] font-black uppercase tracking-widest border border-emerald-100">${escapeHtml(name)}</span>`).join("") : `<span class="text-slate-200">—</span>`}</div></td>`;
+          }).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
 }
 
 function AuditViewHTML() {
-  return `<div class="bg-white rounded-[2rem] shadow-xl p-8 border border-slate-100 animate-in text-left"><h3 class="text-sm font-black mb-6 uppercase tracking-widest text-emerald-900 leading-none">Journal d'Audit & Triggers v4.8</h3><div class="space-y-1.5 max-h-[300px] overflow-y-auto no-scrollbar pr-2">${state.systemLogs.map(log => `<div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-[9px] font-bold border-l-4 border-slate-900 shadow-sm transition-all hover:bg-slate-100"><span class="text-slate-400 font-mono tracking-tighter">${log.time}</span><span class="flex-1 px-4 truncate uppercase tracking-tighter opacity-70">${log.event}</span><span class="text-emerald-600 uppercase tracking-widest font-black">${log.status}</span></div>`).join("")}</div></div>`;
+  return `<div class="bg-white rounded-[2rem] shadow-xl p-8 border border-slate-100 animate-in text-left"><h3 class="text-sm font-black mb-6 uppercase tracking-widest text-emerald-900 leading-none">Journal d'Audit & Triggers v5.4</h3><div class="space-y-1.5 max-h-[300px] overflow-y-auto no-scrollbar pr-2">${state.systemLogs.map(log => `<div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl text-[9px] font-bold border-l-4 border-slate-900 shadow-sm transition-all hover:bg-slate-100"><span class="text-slate-400 font-mono tracking-tighter">${log.time}</span><span class="flex-1 px-4 truncate uppercase tracking-tighter opacity-70">${log.event}</span><span class="text-emerald-600 uppercase tracking-widest font-black">${log.status}</span></div>`).join("")}</div></div>`;
 }
 
 function CoordinationDashboardHTML() {
   const missions = state.missions;
-  const attente = missions.filter(m => m.statut === "ATTENTE").length;
-  const validees = missions.filter(m => m.statut === "VALIDÉ").length;
-  const encours = missions.filter(m => m.volunteerName && !upperTrim(m.statut).startsWith("ARCHIV")).length;
-
   const activeVolunteers = new Set();
   Object.values(state.availabilityMatrix).forEach(names => names.forEach(n => activeVolunteers.add(n)));
   const volCount = activeVolunteers.size || 0;
   
-  const journalHTML = `<div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in text-left"><table class="w-full text-left text-[10px]"><thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100"><tr><th class="p-4">RDV / Heure</th><th class="p-4">Organisme</th><th class="p-4">Statut</th><th class="p-4 text-right">Actions</th></tr></thead><tbody class="font-bold">${missions.filter(m => !upperTrim(m.statut).startsWith("ARCHIV")).length === 0 ? `<tr><td colspan="4" class="p-12 text-center text-slate-300 uppercase tracking-widest">Aucune mission en cours</td></tr>` : missions.filter(m => !upperTrim(m.statut).startsWith("ARCHIV")).map(m => `<tr class="border-t border-slate-50 hover:bg-slate-50/50 transition-colors"><td class="p-4 font-black">${m.date}<br/><span class="text-emerald-600 text-[8px] tracking-widest">${m.heure}</span></td><td class="p-4 uppercase leading-tight tracking-tighter">${m.structure}<br/><span class="text-slate-300 text-[7px] font-black">${m.typeMission}</span></td><td class="p-4"><span class="px-2.5 py-0.5 rounded-md text-[7px] font-black tracking-widest ${m.statut === "ATTENTE" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600 shadow-sm"}">${m.statut}</span></td><td class="p-4 text-right flex items-center justify-end gap-2">
-    <button data-open-mission="${m.code}" title="Détails" class="p-2 text-slate-300 hover:text-blue-500 transition-colors"><i data-lucide="eye" style="width:16px;height:16px;"></i></button>
-    <button data-open-mission="${m.code}" title="Éditer" class="p-2 text-slate-300 hover:text-emerald-600 transition-colors"><i data-lucide="edit-3" style="width:16px;height:16px;"></i></button>
-  </td></tr>`).join("")}</tbody></table></div>`;
-
-  const tabsHTML = `<div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">${[
-    {id:'journal', label:'Dossiers', icon:'clipboard-list'},
-    {id:'planning', label:'Calendrier', icon:'calendar'},
-    {id:'benevoles', label:'Planning Bénévoles', icon:'users'},
-    {id:'archives', label:'Archives', icon:'archive'},
-    {id:'audit', label:'Audit Flux', icon:'activity'}
-  ].map(t => `<button data-coord-tab="${t.id}" class="px-5 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-2 transition-all ${state.coordTab === t.id ? "bg-emerald-600 text-white shadow-xl scale-105" : "bg-white text-slate-400 border border-slate-200 hover:bg-slate-50"}"><i data-lucide="${t.icon}" style="width:14px;height:14px;"></i> ${t.label}</button>`).join("")}</div>`;
+  const journalHTML = `<div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 animate-in text-left"><table class="w-full text-left text-[10px]"><thead class="bg-slate-50 text-slate-400 font-black uppercase text-[7px] tracking-widest border-b border-slate-100"><tr><th class="p-4">RDV / Heure</th><th class="p-4">Organisme</th><th class="p-4 text-center">Statut</th><th class="p-4 text-right">Actions</th></tr></thead><tbody class="font-bold">${missions.filter(m => !upperTrim(m.statut).startsWith("ARCHIV")).length === 0 ? `<tr><td colspan="4" class="p-12 text-center text-slate-300 uppercase tracking-widest">Aucune mission en cours</td></tr>` : missions.filter(m => !upperTrim(m.statut).startsWith("ARCHIV")).map(m => `<tr class="border-t border-slate-50 hover:bg-slate-50/50 transition-colors"><td class="p-4 font-black">${m.date}<br/><span class="text-emerald-600 text-[8px] tracking-widest">${m.heure}</span></td><td class="p-4 uppercase leading-tight tracking-tighter">${m.structure}<br/><span class="text-slate-300 text-[7px] font-black">${m.typeMission}</span></td><td class="p-4 text-center"><span class="status-badge ${m.statut === "ATTENTE" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600 shadow-sm"}">${m.statut}</span></td><td class="p-4 text-right flex items-center justify-end gap-2"><button data-open-mission="${m.code}" title="Détails" class="p-2 text-slate-300 hover:text-blue-500 transition-colors"><i data-lucide="eye" style="width:16px;height:16px;"></i></button><button data-open-mission="${m.code}" title="Éditer" class="p-2 text-slate-300 hover:text-emerald-600 transition-colors"><i data-lucide="edit-3" style="width:16px;height:16px;"></i></button></td></tr>`).join("")}</tbody></table></div>`;
+  const tabsHTML = `<div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mb-4">${[{id:'journal', label:'Dossiers', icon:'clipboard-list'},{id:'planning', label:'Calendrier', icon:'calendar'},{id:'benevoles', label:'Planning Bénévoles', icon:'users'},{id:'archives', label:'Archives', icon:'archive'},{id:'audit', label:'Audit Flux', icon:'activity'}].map(t => `<button data-coord-tab="${t.id}" class="px-5 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest flex items-center gap-2 transition-all ${state.coordTab === t.id ? "bg-emerald-600 text-white shadow-xl scale-105" : "bg-white text-slate-400 border border-slate-200 hover:bg-slate-50"}"><i data-lucide="${t.icon}" style="width:14px;height:14px;"></i> ${t.label}</button>`).join("")}</div>`;
 
   let bodyHTML = journalHTML;
   if (state.coordTab === "planning") bodyHTML = CoordMonthCalendarHTML();
-  if (state.coordTab === "benevoles") bodyHTML = CoordVolunteerWeekHTML();
-  if (state.coordTab === "audit") bodyHTML = AuditViewHTML();
-  if (state.coordTab === "archives") bodyHTML = `<div class="p-20 text-center bg-white rounded-3xl border border-dashed border-slate-100 text-slate-300 font-black uppercase tracking-widest text-[10px]">Archives v4.8</div>`;
+  else if (state.coordTab === "benevoles") bodyHTML = CoordVolunteerWeekHTML();
+  else if (state.coordTab === "audit") bodyHTML = AuditViewHTML();
+  else if (state.coordTab === "archives") bodyHTML = `<div class="p-20 text-center bg-white rounded-3xl border border-dashed border-slate-100 text-slate-300 font-black uppercase tracking-widest text-[10px]">Archives v5.4</div>`;
 
-  return `<div class="space-y-4 animate-in text-left"><div class="grid grid-cols-4 gap-3">${[
-    {l:'Attente', v:attente, c:'text-amber-600'},
-    {l:'Validées', v:validees, c:'text-emerald-600'},
-    {l:'En Cours', v:encours, c:'text-blue-600'},
-    {l:'Bénévoles', v:volCount, c:'text-slate-900'}
-  ].map(s => `<div class="bg-white p-4 rounded-2xl shadow-lg border border-slate-50 text-center"><p class="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1.5 leading-none">${s.l}</p><p class="text-2xl font-black ${s.c} tracking-tighter leading-none">${s.v}</p></div>`).join("")}</div>${tabsHTML}${bodyHTML}</div>`;
+  return `<div class="space-y-4 animate-in text-left">
+    <div class="flex justify-between items-center mb-2"><button id="btnCoordBackHub" class="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2 hover:text-emerald-600 transition-colors"><i data-lucide="chevron-left" style="width:14px;height:14px;"></i> Retour Hub</button></div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">${[{l:'Attente', v:missions.filter(m => m.statut === "ATTENTE").length, c:'text-amber-600'},{l:'Validées', v:missions.filter(m => m.statut === "VALIDÉ").length, c:'text-emerald-600'},{l:'En Cours', v:missions.filter(m => m.volunteerName && !upperTrim(m.statut).startsWith("ARCHIV")).length, c:'text-blue-600'},{l:'Bénévoles', v:volCount, c:'text-slate-900'}].map(s => `<div class="bg-white p-4 rounded-2xl shadow-lg border border-slate-50 text-center"><p class="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1.5 leading-none">${s.l}</p><p class="text-2xl font-black ${s.c} tracking-tighter leading-none">${s.v}</p></div>`).join("")}</div>
+    ${tabsHTML}${bodyHTML}
+  </div>`;
 }
 
-function MainViewHTML() {
-  if (state.view === "hub") return HubHTML();
-  if (state.view === "partner") return PartnerModuleHTML();
-  if (state.view === "volunteer" && state.authRole === "BENE") return VolunteerDashboardHTML();
-  if (state.view === "coord" && state.authRole === "COORD") return CoordinationDashboardHTML();
-  return HubHTML();
-}
-
-/** * LOGIQUE ACTIONS & RENDER
+/**
+ * ACTIONS & LOGIQUE
  */
+async function fetchAvailabilityMatrix() {
+  try {
+    const range = getWeekRange(state.coordWeekDate);
+    state.availabilityMatrix = {}; 
+    const res = await fetchWithRetry(`${API_URL}?action=getAvailabilityMatrix&weekStart=${toISODate(range.start)}`);
+    if (res?.ok && res.matrix) { state.availabilityMatrix = res.matrix; state.availabilityLastSync = new Date().toISOString(); render(); }
+  } catch (e) {}
+}
+
+async function fetchVolunteerPattern() {
+  if (!state.user) return;
+  state.loading = true; render();
+  try {
+    const range = getWeekRange(state.volunteerCurrentDate);
+    state.selectedSlots = new Set();
+    const res = await fetchWithRetry(`${API_URL}?action=getVolunteerPattern&token=${encodeURIComponent(state.user.token)}&weekStart=${toISODate(range.start)}`);
+    if (res?.ok) {
+      const mondayStr = range.start.toDateString();
+      (res.pattern || []).forEach(p => {
+        const parts = p.split("|");
+        if(parts.length === 2) state.selectedSlots.add(`${mondayStr}-${parts[0]}-${parts[1]}`);
+      });
+    }
+  } catch (e) { console.error("Sync failed"); } finally { state.loading = false; render(); }
+}
+
 async function handleLogin(token) {
   state.loading = true; render();
   try {
     const res = await fetchWithRetry(`${API_URL}?action=validateToken&token=${encodeURIComponent(token)}`);
     if (res?.ok && res.profile) {
-      state.user = { 
-        name: res.profile.name || res.profile.nom, 
-        token, 
-        role: upperTrim(res.role || res.profile.role).includes("COORD") ? "COORD" : "BENE", 
-        secteur: res.profile.secteur || "Centre" 
-      };
+      state.user = { name: res.profile.name || res.profile.nom, token, role: upperTrim(res.role || res.profile.role).includes("COORD") ? "COORD" : "BENE", secteur: res.profile.secteur || "Centre" };
       state.authRole = state.user.role;
-      if (state.authRole === "COORD") await fetchAvailabilityMatrix();
-      goTo(state.authRole === "COORD" ? "coord" : "volunteer");
+      await goTo(state.authRole === "COORD" ? "coord" : "volunteer");
     } else { alert("Token invalide."); }
   } catch (err) { state.error = "Serveur indisponible."; } finally { state.loading = false; render(); }
 }
@@ -423,106 +457,73 @@ async function handleLogin(token) {
 async function handleAction(payload) {
   state.loading = true; render();
   try {
-    const res = await fetchWithRetry(API_URL, {
-      method: "POST",
-      body: JSON.stringify({ ...payload, token: state.user?.token })
-    });
+    const res = await fetchWithRetry(API_URL, { method: "POST", body: JSON.stringify({ ...payload, token: state.user?.token }) });
     if (res?.ok) {
       await fetchMissions();
       if (state.authRole === "COORD") await fetchAvailabilityMatrix();
-      render();
-      return res;
+      if (state.authRole === "BENE") await fetchVolunteerPattern();
+      render(); return res;
     }
     throw new Error(res?.error || "Opération refusée");
-  } catch (err) {
-    state.error = err.message;
-    render();
-  } finally {
-    state.loading = false; render();
-  }
-}
-
-async function fetchAvailabilityMatrix() {
-  try {
-    const res = await fetchWithRetry(`${API_URL}?action=getAvailabilityMatrix`);
-    if (res?.ok && res.matrix) { state.availabilityMatrix = res.matrix; state.availabilityLastSync = new Date().toISOString(); }
-  } catch (e) {}
+  } catch (err) { state.error = err.message; render(); } finally { state.loading = false; render(); }
 }
 
 async function fetchMissions() {
   try {
     const res = await fetchWithRetry(`${API_URL}?action=listMissions`);
-    if (res?.ok) {
-      const remoteMissions = (Array.isArray(res.missions) ? res.missions : []).map(normalizeMission);
-      state.missions = remoteMissions;
-    }
+    if (res?.ok) state.missions = (Array.isArray(res.missions) ? res.missions : []).map(normalizeMission);
   } catch (e) { console.error("Sync failed"); }
 }
 
 function startCoordPolling() {
   stopCoordPolling();
-  state.coordPollingTimer = setInterval(() => { if (state.view === "coord") { fetchMissions(); fetchAvailabilityMatrix(); render(); } }, 20000);
+  state.coordPollingTimer = setInterval(() => { if (state.view === "coord") { fetchMissions(); fetchAvailabilityMatrix(); } }, 20000);
 }
 function stopCoordPolling() { if (state.coordPollingTimer) clearInterval(state.coordPollingTimer); }
 
+async function goTo(nextView) {
+  state.error = null;
+  state.isAuthModalOpen = false;
+  state.selectedMission = null;
+  if (nextView !== "coord") state.coordTab = "journal";
+  if (nextView !== "volunteer") state.selectedSlots = new Set();
+  state.view = nextView;
+  if (nextView === "volunteer") await fetchVolunteerPattern();
+  if (nextView === "coord") { await fetchAvailabilityMatrix(); startCoordPolling(); } else { stopCoordPolling(); }
+  state.uiKey++;
+  render();
+}
+
+/**
+ * RENDU FINAL
+ */
 function render() {
+  const $app = document.getElementById("app"); 
+  if (!$app) return;
+
+  let mainContent = HubHTML();
+  if (state.view === "partner") mainContent = PartnerModuleHTML();
+  else if (state.view === "volunteer") mainContent = VolunteerDashboardHTML();
+  else if (state.view === "coord") mainContent = CoordinationDashboardHTML();
+
   let modalHTML = '';
   if (state.selectedMission) {
-    const m = state.selectedMission;
-    const weekday = new Date(m.date).toLocaleDateString("fr-FR", { weekday: "long" });
-    const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
-    const timeKey = `${capitalizedWeekday}|${m.heure.split(':')[0]}:00`;
-    const matchingVols = state.availabilityMatrix[timeKey] || [];
-
-    modalHTML = `
-    <div class="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
+    const m = normalizeMission(state.selectedMission);
+    modalHTML = `<div class="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
       <div class="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden animate-in">
         <div class="bg-emerald-900 p-8 text-white text-left">
-          <div class="flex justify-between items-start mb-4"><p class="text-[8px] font-black uppercase opacity-60">Détails Mission v4.8</p><button id="btnCloseMissionModal" class="text-white/40"><i data-lucide="x-circle"></i></button></div>
+          <div class="flex justify-between items-start mb-4"><p class="text-[8px] font-black uppercase opacity-60">Détails Mission</p><button id="btnCloseMissionModal" class="text-white/40"><i data-lucide="x-circle"></i></button></div>
           <h3 class="text-2xl font-black uppercase tracking-tighter leading-none">${escapeHtml(m.structure)}</h3>
-          <p class="text-[8px] font-black opacity-50 uppercase tracking-widest mt-1">Secteur : ${escapeHtml(m.secteur)}</p>
         </div>
         <div class="p-8 space-y-5 text-left">
-          <div class="grid grid-cols-2 gap-3">
-             <div class="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-               <label class="text-[6px] font-black text-slate-300 uppercase block tracking-widest mb-1">Date</label>
-               <p class="text-[10px] font-bold text-slate-700">${m.date}</p>
-             </div>
-             <div class="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-               <label class="text-[6px] font-black text-slate-300 uppercase block tracking-widest mb-1">Heure</label>
-               <p class="text-[10px] font-bold text-slate-700">${m.heure}</p>
-             </div>
-          </div>
-          
-          <div class="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-             <label class="text-[6px] font-black text-slate-300 uppercase block tracking-widest mb-1">Lieu Exact</label>
-             <p class="text-[10px] font-bold text-slate-700 truncate">${escapeHtml(m.lieu)}</p>
-          </div>
-
-          ${matchingVols.length > 0 ? `
-            <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-              <label class="text-[7px] font-black text-blue-600 uppercase block tracking-widest mb-2">Bénévoles Disponibles (${matchingVols.length})</label>
-              <div class="flex flex-wrap gap-1">
-                ${matchingVols.map(v => `<span class="px-2 py-0.5 bg-blue-600 text-white rounded-md text-[7px] font-black uppercase">${escapeHtml(v)}</span>`).join("")}
-              </div>
-              <button id="btnProposerMission" class="w-full mt-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-blue-200">Proposer la mission</button>
-            </div>
-          ` : `
-            <div class="p-4 bg-amber-50 rounded-2xl border border-amber-100 text-center">
-              <p class="text-[8px] font-black text-amber-600 uppercase tracking-widest">Aucun bénévole planifié sur ce créneau</p>
-            </div>
-          `}
-
-          <div class="flex gap-2 pt-2">
-            <button id="btnModalValidate" class="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-emerald-200">Valider</button>
-            <button id="btnModalArchive" class="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest">Archiver</button>
-          </div>
+          <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Date & Heure : ${m.date} à ${m.heure}</p>
+          <div class="flex gap-2 pt-2"><button id="btnModalValidate" class="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Valider</button><button id="btnModalArchive" class="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px]">Archiver</button></div>
         </div>
       </div>
     </div>`;
   }
 
-  $app.innerHTML = `<div data-uikey="${state.uiKey}">${NavbarHTML()}<main class="max-w-6xl mx-auto px-4 py-6 text-left">${MainViewHTML()}</main>${AuthModalHTML()}${modalHTML}${FooterHTML()}${state.loading ? LoaderHTML() : ``}</div>`;
+  $app.innerHTML = `<div data-uikey="${state.uiKey}">${NavbarHTML()}<main class="max-w-6xl mx-auto px-4 py-6 text-left">${mainContent}</main>${AuthModalHTML()}${modalHTML}${FooterHTML()}${state.loading ? LoaderHTML() : ``}</div>`;
   try { lucide.createIcons(); } catch(e) {}
   bindEvents();
 }
@@ -530,53 +531,46 @@ function render() {
 function bindEvents() {
   const navHome = document.getElementById("navHome"); if (navHome) navHome.onclick = () => goTo("hub");
   const btnLogout = document.getElementById("btnLogout"); if (btnLogout) btnLogout.onclick = () => { state.user = null; goTo("hub"); };
-  
-  document.querySelectorAll("[data-hub-action]").forEach(el => { 
-    el.onclick = () => { 
-      const act = el.getAttribute("data-hub-action"); 
-      if (act === "partner") { state.partnerSubmitted = false; goTo("partner"); } 
-      else { state.isAuthModalOpen = true; render(); } 
-    }; 
-  });
-
+  document.querySelectorAll("[data-hub-action]").forEach(el => { el.onclick = () => { const act = el.getAttribute("data-hub-action"); if (act === "partner") goTo("partner"); else { state.isAuthModalOpen = true; render(); } }; });
   const authForm = document.getElementById("authForm"); if (authForm) authForm.onsubmit = (e) => { e.preventDefault(); handleLogin(document.getElementById("tokenInput").value); };
   const btnAuthCancel = document.getElementById("btnAuthCancel"); if (btnAuthCancel) btnAuthCancel.onclick = () => { state.isAuthModalOpen = false; render(); };
-  
-  // Navigation coordination
-  document.querySelectorAll("[data-coord-tab]").forEach(btn => { btn.onclick = () => { state.coordTab = btn.getAttribute("data-coord-tab"); render(); }; });
+  document.querySelectorAll("[data-coord-tab]").forEach(btn => { btn.onclick = () => { state.coordTab = btn.getAttribute("data-coord-tab"); if (state.coordTab === "benevoles") fetchAvailabilityMatrix(); render(); }; });
   const btnCalPrev = document.getElementById("btnCalPrev"); if (btnCalPrev) btnCalPrev.onclick = () => { state.calendarBaseDate = new Date(state.calendarBaseDate.getFullYear(), state.calendarBaseDate.getMonth() - 1, 1); render(); };
   const btnCalNext = document.getElementById("btnCalNext"); if (btnCalNext) btnCalNext.onclick = () => { state.calendarBaseDate = new Date(state.calendarBaseDate.getFullYear(), state.calendarBaseDate.getMonth() + 1, 1); render(); };
-  const btnCoordWeekPrev = document.getElementById("btnCoordWeekPrev"); if (btnCoordWeekPrev) btnCoordWeekPrev.onclick = () => { state.coordWeekDate.setDate(state.coordWeekDate.getDate() - 7); render(); };
-  const btnCoordWeekNext = document.getElementById("btnCoordWeekNext"); if (btnCoordWeekNext) btnCoordWeekNext.onclick = () => { state.coordWeekDate.setDate(state.coordWeekDate.getDate() + 7); render(); };
-
-  // Missions & Modale
-  document.querySelectorAll("[data-open-mission]").forEach(btn => { 
-    btn.onclick = () => { 
-      const code = btn.getAttribute("data-open-mission");
-      state.selectedMission = state.missions.find(m => String(m.code) === String(code)); 
-      render(); 
-    }; 
-  });
-  const btnCloseMissionModal = document.getElementById("btnCloseMissionModal"); if (btnCloseMissionModal) btnCloseMissionModal.onclick = () => { state.selectedMission = null; render(); };
-  const btnModalValidate = document.getElementById("btnModalValidate"); if (btnModalValidate) btnModalValidate.onclick = async () => { 
-    await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "VALIDÉ", notifyZone: true }); 
-    state.selectedMission = null; 
-    render(); 
-  };
-  const btnModalArchive = document.getElementById("btnModalArchive"); if (btnModalArchive) btnModalArchive.onclick = async () => { await handleAction({ action: "updateStatus", code: state.selectedMission.code, status: "ARCHIVÉ" }); state.selectedMission = null; render(); };
-  
-  const btnProposerMission = document.getElementById("btnProposerMission");
-  if (btnProposerMission) {
-    btnProposerMission.onclick = async () => {
-      await handleAction({ action: "proposeToMatchingVols", code: state.selectedMission.code });
-      state.selectedMission = null;
-      render();
-    };
-  }
-
-  // Partner
+  const btnCoordWeekPrev = document.getElementById("btnCoordWeekPrev"); if (btnCoordWeekPrev) btnCoordWeekPrev.onclick = async () => { state.coordWeekDate.setDate(state.coordWeekDate.getDate() - 7); await fetchAvailabilityMatrix(); render(); };
+  const btnCoordWeekNext = document.getElementById("btnCoordWeekNext"); if (btnCoordWeekNext) btnCoordWeekNext.onclick = async () => { state.coordWeekDate.setDate(state.coordWeekDate.getDate() + 7); await fetchAvailabilityMatrix(); render(); };
+  const btnCoordSync = document.getElementById("btnCoordSync"); if (btnCoordSync) btnCoordSync.onclick = () => fetchAvailabilityMatrix();
+  const btnVolBackHub = document.getElementById("btnVolBackHub"); if (btnVolBackHub) btnVolBackHub.onclick = () => goTo("hub");
+  const btnCoordBackHub = document.getElementById("btnCoordBackHub"); if (btnCoordBackHub) btnCoordBackHub.onclick = () => goTo("hub");
   const btnBackHubFromPartner = document.getElementById("btnBackHubFromPartner"); if (btnBackHubFromPartner) btnBackHubFromPartner.onclick = () => goTo("hub");
   const btnPartnerBackHub = document.getElementById("btnPartnerBackHub"); if (btnPartnerBackHub) btnPartnerBackHub.onclick = () => goTo("hub");
+  const btnWeekPrev = document.getElementById("btnWeekPrev"); if (btnWeekPrev) btnWeekPrev.onclick = async () => { state.volunteerCurrentDate.setDate(state.volunteerCurrentDate.getDate() - 7); await fetchVolunteerPattern(); render(); };
+  const btnWeekNext = document.getElementById("btnWeekNext"); if (btnWeekNext) btnWeekNext.onclick = async () => { state.volunteerCurrentDate.setDate(state.volunteerCurrentDate.getDate() + 7); await fetchVolunteerPattern(); render(); };
+  const btnSyncPlanning = document.getElementById("btnSyncPlanning"); if (btnSyncPlanning) btnSyncPlanning.onclick = () => fetchVolunteerPattern();
+  const btnSavePlanning = document.getElementById("btnSavePlanning"); 
+  if (btnSavePlanning) {
+    btnSavePlanning.onclick = async () => {
+      const range = getWeekRange(state.volunteerCurrentDate);
+      const pattern = Array.from(state.selectedSlots).map(k => { const parts = k.split("-"); return `${parts[parts.length - 2]}|${parts[parts.length - 1]}`; });
+      await handleAction({ action: "saveAvailabilityPattern", pattern: pattern, weekStart: toISODate(range.start), secteur: state.user.secteur });
+    };
+  }
+  document.querySelectorAll("[data-slot-key]").forEach(cell => { cell.onclick = () => { const k = cell.getAttribute("data-slot-key"); if (state.selectedSlots.has(k)) state.selectedSlots.delete(k); else state.selectedSlots.add(k); render(); }; });
+  
+  // SELECTION ZONE (RÉTABLI)
+  const volSectSelect = document.getElementById("volunteerSecteurSelect");
+  if (volSectSelect) {
+    volSectSelect.onchange = () => { if (state.user) state.user.secteur = volSectSelect.value; render(); };
+  }
+
+  // M'ENGAGER (RÉTABLI)
+  document.querySelectorAll("[data-take-mission]").forEach(btn => {
+    btn.onclick = async () => {
+      const code = btn.getAttribute("data-take-mission");
+      await handleAction({ action: "takeMission", code: code });
+    };
+  });
+
   const partnerForm = document.getElementById("partnerForm"); if (partnerForm) {
     partnerForm.onsubmit = async (e) => {
       e.preventDefault();
@@ -585,57 +579,11 @@ function bindEvents() {
       if (res?.ok) { state.partnerSubmitted = true; render(); }
     };
   }
-
-  // SÉLECTION ZONE BÉNÉVOLE
-  const volunteerSecteurSelect = document.getElementById("volunteerSecteurSelect");
-  if (volunteerSecteurSelect) {
-    volunteerSecteurSelect.onchange = () => {
-      if (state.user) {
-        state.user.secteur = volunteerSecteurSelect.value;
-        render();
-      }
-    };
-  }
-
-  // Volunteer Navigation & Planning
-  const btnWeekPrev = document.getElementById("btnWeekPrev"); if (btnWeekPrev) btnWeekPrev.onclick = () => { state.volunteerCurrentDate.setDate(state.volunteerCurrentDate.getDate() - 7); render(); };
-  const btnWeekNext = document.getElementById("btnWeekNext"); if (btnWeekNext) btnWeekNext.onclick = () => { state.volunteerCurrentDate.setDate(state.volunteerCurrentDate.getDate() + 7); render(); };
-  
-  const btnSavePlanning = document.getElementById("btnSavePlanning"); 
-  if (btnSavePlanning) {
-    btnSavePlanning.onclick = async () => {
-      const pattern = Array.from(state.selectedSlots).map(k => {
-        const parts = k.split("-");
-        const day = parts[parts.length - 2];
-        const hour = parts[parts.length - 1];
-        return `${day}|${hour}`;
-      });
-      
-      const res = await handleAction({ 
-        action: "saveAvailabilityPattern", 
-        pattern: pattern,
-        secteur: state.user.secteur,
-        volunteerName: state.user.name 
-      });
-
-      if (res && res.ok) {
-        await fetchAvailabilityMatrix();
-        render();
-      }
-    };
-  }
-
-  document.querySelectorAll("[data-take-mission]").forEach(btn => {
-    btn.onclick = () => handleAction({ action: "takeMission", code: btn.getAttribute("data-take-mission") });
-  });
-
-  document.querySelectorAll("[data-slot-key]").forEach(cell => { cell.onclick = () => { const k = cell.getAttribute("data-slot-key"); if (state.selectedSlots.has(k)) state.selectedSlots.delete(k); else state.selectedSlots.add(k); render(); }; });
 }
 
 (async function init() {
   const bypass = setTimeout(() => { if (state.loading) { state.loading = false; state.error = "Mode secours activé."; render(); } }, TIMEOUT_BYPASS);
   await fetchMissions();
-  if (state.authRole === "COORD") await fetchAvailabilityMatrix();
   clearTimeout(bypass);
   state.loading = false;
   render();
